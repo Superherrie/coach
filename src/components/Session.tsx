@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import Icon from './Icon'
 import { Scale, Sheet } from './ui'
 import { supabase } from '../lib/supabase'
@@ -60,6 +61,9 @@ export function SessionCard({ slot, p, acts, onLog, onEdit, onOpenAct }: { slot:
           ))}
         </div>
       </div>
+      {!isRest && (p?.targets as { workout_id?: string } | undefined)?.workout_id && !acts.length && (
+        <Link to={`/workouts/${(p!.targets as { workout_id: string }).workout_id}`} className="btn btn-ember w-full mt-3 !py-2">▶ Start guided session</Link>
+      )}
       {!isRest && (
         <div className="flex gap-2 mt-3">
           {!acts.length && <button className="btn btn-primary flex-1 !py-2" onClick={onLog}><Icon name="plus" size={16} />Log it</button>}

@@ -2,7 +2,7 @@ export type Sport = 'run' | 'ride' | 'gym_legs' | 'gym_upper' | 'mobility' | 're
 export type Slot = 'am' | 'pm'
 
 export interface Exercise { name: string; sets: number; reps: number; kg: number | null }
-export interface Targets { hr_max?: number | null; pace?: string | null; watts?: string | null; exercises?: Exercise[] | null }
+export interface Targets { workout_id?: string | null; hr_max?: number | null; pace?: string | null; watts?: string | null; exercises?: Exercise[] | null }
 
 export interface Planned {
   id: number; date: string; slot: Slot; sport: Sport; title: string; description: string | null

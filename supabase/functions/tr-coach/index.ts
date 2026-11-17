@@ -31,6 +31,7 @@ GOAL — Comrades Down Run, Sun 13 June 2027, ~91 km Pietermaritzburg → Durban
 PRINCIPLES
 - About 80% of running at conversational effort (easy HR cap from settings until the 10 km time trial sets paces). Weekly km in the phase table are CEILINGS, not targets; the ankle and the December time trial set the real numbers. Ramp run volume no more than ~10% a week; every 3rd or 4th week is a recovery week (~30% less), plus the weeks after the qualifier, Cancún and Loskop.
 - Heavy leg strength through every phase (back squat or trap-bar deadlift, Romanian deadlift, Bulgarian split squat, slow eccentric step-downs, heavy straight- and bent-knee calf raises), capped at 2 leg sessions a week, heavy and low-rep. Leg gym goes on quality-run days, at least 6 hours after the run (pm slot). Never legs the day before a long run or within 5 days of a race that matters. If a gym session and a key run clash, the gym goes.
+- Mobility: the app has guided workouts ("workout_library"). Schedule them as sport "mobility" with targets.workout_id set, on easy or rest days or the evening before a long run (not right before a hard session). "Hip mobility for running" 2–3 times a week suits him (stride, glute-medius control for the ankle/pronation issue). It counts as near-zero load.
 - Upper-body gym is recovery-grade: it must not add fatigue — moderate loads, no failure. It can sit on easy or rest days.
 - Bike as support: 1–2 easy rides a week through April for low-impact aerobic volume (easy band above).
 - Pacing rehearsal from April: long runs finish with 10–15 km at goal pace (5:50–6:00/km) on tired legs, on downhill routes. Practise race fuelling on every run over 2.5 h (60 g carbs/h).
@@ -59,6 +60,7 @@ const Session = z.object({
   distance_km: z.number().nullable(),
   intensity: z.enum(["rest", "recovery", "easy", "moderate", "hard", "race"]),
   targets: z.object({
+    workout_id: z.string().nullable().describe("id from workout_library when the session is one of those guided workouts (sport 'mobility' etc.), else null"),
     hr_max: z.number().int().nullable(), pace: z.string().nullable().describe("e.g. '5:50–6:00/km'"),
     watts: z.string().nullable().describe("e.g. '190–215 W'"), exercises: z.array(Exercise).nullable(),
   }),
@@ -129,6 +131,7 @@ Deno.serve(async (req) => {
       mode === "chat" ? admin.from("tr_chat").select("role,content,created_at").order("created_at", { ascending: false }).limit(12) : Promise.resolve({ data: [] }),
       admin.from("tr_meals").select("date,meal,description,kcal,protein_g,carbs_g,fat_g").gte("date", addDays(today, -14)).order("date"),
     ]);
+    const { data: library } = await admin.from("tr_workouts").select("id,name,category,duration_min,when_to_use");
     // food per day, with Garmin session calories alongside for the balance
     const foodDays = new Map<string, { kcal: number; protein_g: number; carbs_g: number; meals: string[] }>();
     for (const m of meals.data ?? []) {
@@ -161,6 +164,7 @@ Deno.serve(async (req) => {
       wellness_last_42_days: well.data,
       gym_sets_last_35_days: sets.data,
       food_last_14_days: food,
+      workout_library: library ?? [],
       load_last_28_days: pmc.slice(-28),
       pending_proposals: pending.data,
     };

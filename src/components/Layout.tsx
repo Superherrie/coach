@@ -11,6 +11,7 @@ const NAV = [
   { to: '/plan', label: 'Plan', icon: 'calendar' },
   { to: '/trends', label: 'Trends', icon: 'chart' },
   { to: '/coach', label: 'Coach', icon: 'chat' },
+  { to: '/workouts', label: 'Workouts', icon: 'stretch' },
   { to: '/settings', label: 'Settings', icon: 'settings' },
 ]
 
@@ -43,7 +44,7 @@ export default function Layout() {
   const { member, signOut } = useAuth()
   const loc = useLocation(); const nav = useNavigate()
   useEffect(() => { window.scrollTo(0, 0) }, [loc.pathname])
-  const TABS = NAV.filter(n => n.to !== '/settings')
+  const TABS = NAV.filter(n => n.to !== '/settings' && n.to !== '/workouts')
 
   return (
     <div className="min-h-full md:flex">
@@ -72,6 +73,7 @@ export default function Layout() {
           <Logo size={26} /><span className="display text-xl">Coach</span>
           <span className="ml-auto flex items-center gap-1"><SyncButton />
             <button onClick={() => nav('/?meal=1')} aria-label="Add a meal" className="flex items-center gap-1 rounded-full bg-ember text-white pl-2 pr-2.5 py-1 text-xs font-semibold active:scale-95"><Icon name="food" size={15} />Meal</button>
+            <NavLink to="/workouts" aria-label="Workouts" className="p-1.5 text-muted"><Icon name="stretch" size={19} /></NavLink>
             <NavLink to="/settings" aria-label="Settings" className="p-1.5 text-muted"><Icon name="settings" size={19} /></NavLink></span>
         </header>
         <div className="mx-auto max-w-5xl px-4 md:px-8 md:pt-8"><Outlet /></div>
