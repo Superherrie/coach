@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import Icon from '../components/Icon'
 import { Card, Stat } from '../components/ui'
 import { LogSheet, PlanSheet, SportDot } from '../components/Session'
-import { getActs, getEvents, getPhases, getPlanned, getSets, useLoad } from '../lib/data'
+import { getActs, getEvents, getPhases, getPlanned, getSets, getSettings, useLoad } from '../lib/data'
+import { paceFor, type Paces } from '../lib/paces'
 import { addDays, dm, dmy, monday, num, today } from '../lib/format'
 import { actLoad } from '../lib/load'
 import type { Activity, Planned, Slot } from '../lib/types'
@@ -14,8 +15,8 @@ export default function Plan() {
   const [wk, setWk] = useState(monday(today()))
   const end = addDays(wk, 6)
   const { data, reload } = useLoad(async () => {
-    const [planned, acts, phases, events, sets] = await Promise.all([getPlanned(wk, end), getActs(wk, end), getPhases(), getEvents(), getSets(addDays(wk, -90))])
-    return { planned, acts, phases, events, sets }
+    const [planned, acts, phases, events, sets, settings] = await Promise.all([getPlanned(wk, end), getActs(wk, end), getPhases(), getEvents(), getSets(addDays(wk, -90)), getSettings()])
+    return { planned, acts, phases, events, sets, paces: (settings.paces ?? null) as Paces | null }
   }, [wk])
   useSynced(reload)
   const [log, setLog] = useState<{ date: string; slot: Slot; planned?: Planned; act?: Activity }>()
@@ -78,7 +79,7 @@ export default function Plan() {
                     <span className="flex-1 min-w-0">
                       <span className="block text-sm font-medium truncate">{p?.title ?? acts[0]?.name}</span>
                       <span className="block text-xs text-muted truncate">
-                        {s === 'am' ? 'AM' : 'PM'}{p?.planned_load ? ` · load ${p.planned_load}` : ''}{p?.change_note ? ` · ${p.change_note}` : ''}
+                        {s === 'am' ? 'AM' : 'PM'}{p && (p.targets?.pace ?? paceFor(p, data.paces)) ? ` · ${p.targets?.pace ?? paceFor(p, data.paces)}` : ''}{p?.planned_load ? ` · load ${p.planned_load}` : ''}{p?.change_note ? ` · ${p.change_note}` : ''}
                       </span>
                     </span>
                     {acts.length ? <span className="chip !bg-good/15 !text-good"><Icon name="check" size={12} />{num(acts.reduce((x, a) => x + actLoad(a), 0))}</span>

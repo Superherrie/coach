@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { callFn, useLoad } from '../lib/data'
+import { callFn, getSettings, useLoad } from '../lib/data'
 import Icon from './Icon'
 import { Scale, Sheet } from './ui'
 import { supabase } from '../lib/supabase'
@@ -202,13 +202,22 @@ export function LogSheet({ date, slot, planned, act, existingSets, lastKg, onClo
 
 // ---------------- change a planned session by hand ----------------
 export function PlanSheet({ p, onClose, onSaved, onAskCoach }: { p: Planned; onClose: () => void; onSaved: () => void; onAskCoach: (msg: string) => void }) {
-  const [f, setF] = useState({ sport: p.sport, title: p.title, duration_min: p.duration_min ? String(p.duration_min) : '', distance_km: p.distance_km ? String(p.distance_km) : '', description: p.description ?? '', locked: p.locked })
+  const [f, setF] = useState({ sport: p.sport, title: p.title, duration_min: p.duration_min ? String(p.duration_min) : '', distance_km: p.distance_km ? String(p.distance_km) : '', description: p.description ?? '', locked: p.locked,
+    pace: p.targets?.pace ?? '', hr_max: p.targets?.hr_max ? String(p.targets.hr_max) : '' })
   const [busy, setBusy] = useState(false)
+  const { data: st } = useLoad(() => getSettings(), [])
+  const paces = (st?.paces ?? null) as Paces | null
+  const planPace = paceFor({ title: f.title, intensity: p.intensity, sport: f.sport }, paces)
+  // fill the pace from the plan the first time the paces load (if the session has none of its own)
+  useEffect(() => { if (!f.pace && planPace) setF(x => ({ ...x, pace: planPace })) }, [planPace]) // eslint-disable-line react-hooks/exhaustive-deps
+  const secs = (f.pace.match(/\d{1,2}:\d{2}/g) ?? []).map(m => +m.split(':')[0] * 60 + +m.split(':')[1])
+  const est = f.distance_km && secs.length ? secs.map(x => Math.round((+f.distance_km * x) / 60)) : []
   async function save(extra: Partial<Planned> = {}) {
     setBusy(true)
     await supabase.from('tr_planned').update({
       sport: f.sport, title: f.title, duration_min: f.duration_min ? +f.duration_min : null, distance_km: f.distance_km ? +f.distance_km : null,
-      description: f.description, locked: f.locked, source: 'manual', change_note: 'Changed by you', updated_at: new Date().toISOString(), ...extra,
+      description: f.description, locked: f.locked, source: 'manual', change_note: 'Changed by you', updated_at: new Date().toISOString(),
+      targets: { ...(p.targets ?? {}), pace: f.sport === 'run' || f.sport === 'race' ? (f.pace.trim() || null) : (p.targets?.pace ?? null), hr_max: f.hr_max ? +f.hr_max : null }, ...extra,
     }).eq('id', p.id)
     setBusy(false); onSaved()
   }
@@ -222,6 +231,17 @@ export function PlanSheet({ p, onClose, onSaved, onAskCoach }: { p: Planned; onC
           <label><span className="label">Minutes</span><input inputMode="numeric" className="input mt-1" value={f.duration_min} onChange={e => setF({ ...f, duration_min: e.target.value })} /></label>
           <label><span className="label">Distance km</span><input inputMode="decimal" className="input mt-1" value={f.distance_km} onChange={e => setF({ ...f, distance_km: e.target.value })} /></label>
         </div>
+        {(f.sport === 'run' || f.sport === 'race') && <>
+          <div className="grid grid-cols-[1fr_6rem] gap-2">
+            <label><span className="label">Pace</span><input className="input mt-1 num" placeholder="e.g. 6:20–6:50/km" value={f.pace} onChange={e => setF({ ...f, pace: e.target.value })} /></label>
+            <label><span className="label">HR max</span><input className="input mt-1 num" inputMode="numeric" placeholder={st?.easy_run_hr_cap ? String(st.easy_run_hr_cap) : '—'} value={f.hr_max} onChange={e => setF({ ...f, hr_max: e.target.value })} /></label>
+          </div>
+          <p className="text-xs text-muted -mt-1">
+            {est.length ? `${f.distance_km} km at this pace ≈ ${est.join('–')} min${f.duration_min && (+f.duration_min < Math.min(...est) - 3 || +f.duration_min > Math.max(...est) + 3) ? ' — doesn’t match the minutes above' : ''}. ` : ''}
+            {planPace && f.pace !== planPace ? <button type="button" className="text-brand underline" onClick={() => setF({ ...f, pace: planPace })}>Use plan pace ({planPace})</button> : paces ? `From your paces (VDOT ${paces.vdot}).` : 'Set your paces in Settings to fill this in.'}
+            {est.length > 0 && f.duration_min && (+f.duration_min < Math.min(...est) - 3 || +f.duration_min > Math.max(...est) + 3) && <> <button type="button" className="text-brand underline" onClick={() => setF({ ...f, duration_min: String(Math.round((est[0] + est[est.length - 1]) / 2)) })}>Set minutes to {Math.round((est[0] + est[est.length - 1]) / 2)}</button></>}
+          </p>
+        </>}
         <label className="block"><span className="label">Workout</span><textarea className="input mt-1" rows={4} value={f.description} onChange={e => setF({ ...f, description: e.target.value })} /></label>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={f.locked} onChange={e => setF({ ...f, locked: e.target.checked })} />Lock — the coach may not change this session</label>
         <div className="flex flex-wrap gap-2 pt-1">
