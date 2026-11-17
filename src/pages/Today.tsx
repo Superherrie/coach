@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { navyBf } from '../lib/body'
 import Icon from '../components/Icon'
 import { Card, Scale, Stat } from '../components/ui'
 import { LogSheet, PlanSheet, SessionCard } from '../components/Session'
@@ -89,7 +90,8 @@ export default function Today() {
         <SessionCard key={s} slot={s} p={p} acts={acts} onLog={() => setLog({ slot: s, planned: p })} onEdit={() => p && setEdit(p)} onOpenAct={a => setLog({ slot: s, planned: p, act: a })} />
       ) })}
 
-      <CheckIn day={day} w={w} onSaved={() => void reload()} height={data.settings.height_cm} />
+      <CheckIn day={day} w={w} onSaved={() => void reload()} height={data.settings.height_cm}
+        last={{ waist: [...data.well].reverse().find(x => x.waist_cm)?.waist_cm ?? null, neck: [...data.well].reverse().find(x => x.neck_cm)?.neck_cm ?? null }} />
 
       <FoodCard day={day} acts={dayActs} openReq={mealReq} deficit={data.settings.kcal_deficit ?? 500} body={{
         weight: [...data.well].reverse().find(x => x.weight_kg)?.weight_kg ?? 96,
@@ -109,10 +111,10 @@ export default function Today() {
 }
 
 /** morning check-in: legs, energy, ankle, weight, waist (Garmin fills resting HR / HRV / sleep on its own) */
-function CheckIn({ day, w, onSaved, height }: { day: string; w?: Wellness; onSaved: () => void; height: number | null }) {
-  const [f, setF] = useState({ legs: w?.legs ?? null, energy: w?.energy ?? null, ankle_pain: w?.ankle_pain ?? null, weight_kg: w?.weight_kg ? String(w.weight_kg) : '', waist_cm: w?.waist_cm ? String(w.waist_cm) : '', resting_hr: '', notes: w?.notes ?? '' })
+function CheckIn({ day, w, onSaved, height, last }: { day: string; w?: Wellness; onSaved: () => void; height: number | null; last: { waist: number | null; neck: number | null } }) {
+  const [f, setF] = useState({ legs: w?.legs ?? null, energy: w?.energy ?? null, ankle_pain: w?.ankle_pain ?? null, weight_kg: w?.weight_kg ? String(w.weight_kg) : '', waist_cm: w?.waist_cm ? String(w.waist_cm) : '', neck_cm: w?.neck_cm ? String(w.neck_cm) : '', resting_hr: '', notes: w?.notes ?? '' })
   const [busy, setBusy] = useState(false); const [saved, setSaved] = useState(false)
-  useEffect(() => { setF({ legs: w?.legs ?? null, energy: w?.energy ?? null, ankle_pain: w?.ankle_pain ?? null, weight_kg: w?.weight_kg ? String(w.weight_kg) : '', waist_cm: w?.waist_cm ? String(w.waist_cm) : '', resting_hr: '', notes: w?.notes ?? '' }); setSaved(false) }, [w, day])
+  useEffect(() => { setF({ legs: w?.legs ?? null, energy: w?.energy ?? null, ankle_pain: w?.ankle_pain ?? null, weight_kg: w?.weight_kg ? String(w.weight_kg) : '', waist_cm: w?.waist_cm ? String(w.waist_cm) : '', neck_cm: w?.neck_cm ? String(w.neck_cm) : '', resting_hr: '', notes: w?.notes ?? '' }); setSaved(false) }, [w, day])
   const done = w?.legs != null || w?.ankle_pain != null
   async function save() {
     setBusy(true)
@@ -120,12 +122,15 @@ function CheckIn({ day, w, onSaved, height }: { day: string; w?: Wellness; onSav
     const row: Record<string, unknown> = { date: day, legs: f.legs, energy: f.energy, ankle_pain: f.ankle_pain, notes: f.notes || null, updated_at: new Date().toISOString() }
     if (f.weight_kg && +f.weight_kg !== w?.weight_kg) { row.weight_kg = +f.weight_kg; manual.weight_kg = true }
     if (f.waist_cm && +f.waist_cm !== w?.waist_cm) { row.waist_cm = +f.waist_cm; manual.waist_cm = true }
+    if (f.neck_cm && +f.neck_cm !== w?.neck_cm) { row.neck_cm = +f.neck_cm; manual.neck_cm = true }
     if (f.resting_hr) { row.resting_hr = +f.resting_hr; manual.resting_hr = true }
     row.manual = manual
     await supabase.from('tr_wellness').upsert(row, { onConflict: 'date' })
     setBusy(false); setSaved(true); onSaved()
   }
   const whtr = f.waist_cm && height ? +f.waist_cm / height : null
+  // tape estimate uses today's numbers, or the last ones measured (neck barely changes week to week)
+  const bf = navyBf(+f.waist_cm || last.waist, +f.neck_cm || last.neck, height)
   return (
     <Card title="Check-in" sub={done ? 'Saved — change anything and save again' : '20 seconds. Garmin fills resting HR, HRV and sleep.'}>
       <div className="space-y-3">
@@ -133,12 +138,17 @@ function CheckIn({ day, w, onSaved, height }: { day: string; w?: Wellness; onSav
         <div><p className="label mb-1">Energy</p><Scale value={f.energy} onChange={v => setF({ ...f, energy: v })} min={1} max={5} labels={['flat', 'great']} /></div>
         <div><p className="label mb-1">Ankle pain</p><Scale value={f.ankle_pain} onChange={v => setF({ ...f, ankle_pain: v })} min={0} max={10} labels={['none', 'worst']} />
           {(f.ankle_pain ?? 0) > 3 && <p className="text-xs text-bad mt-1">Above 3/10: the plan says back off running for a week. The coach will swap runs for rides.</p>}</div>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-4 gap-2">
           <label><span className="label">Weight kg</span><input inputMode="decimal" className="input mt-1" value={f.weight_kg} onChange={e => setF({ ...f, weight_kg: e.target.value })} /></label>
-          <label><span className="label">Waist cm</span><input inputMode="decimal" className="input mt-1" value={f.waist_cm} onChange={e => setF({ ...f, waist_cm: e.target.value })} /></label>
+          <label><span className="label">Waist cm</span><input inputMode="decimal" className="input mt-1" value={f.waist_cm} placeholder={last.waist ? String(last.waist) : 'navel'} onChange={e => setF({ ...f, waist_cm: e.target.value })} /></label>
+          <label><span className="label">Neck cm</span><input inputMode="decimal" className="input mt-1" value={f.neck_cm} placeholder={last.neck ? String(last.neck) : 'weekly'} onChange={e => setF({ ...f, neck_cm: e.target.value })} /></label>
           <label><span className="label">Rest HR</span><input inputMode="numeric" className="input mt-1" value={f.resting_hr} placeholder={w?.resting_hr ? String(w.resting_hr) : 'Garmin'} onChange={e => setF({ ...f, resting_hr: e.target.value })} /></label>
         </div>
-        {whtr && <p className="text-xs text-muted">Waist-to-height {whtr.toFixed(2)} {whtr < 0.5 ? '(healthy range, under 0.50)' : '(target under 0.50)'}</p>}
+        {(whtr || bf) && <p className="text-xs text-muted">
+          {whtr ? `Waist-to-height ${whtr.toFixed(2)} ${whtr < 0.5 ? '(healthy, under 0.50)' : '(target under 0.50)'}` : ''}
+          {whtr && bf ? ' · ' : ''}{bf ? `Body fat ≈ ${bf}% (tape, ±3–4%)` : ''}
+        </p>}
+        <p className="text-[11px] text-muted -mt-1">Waist at the navel and neck just below the Adam's apple, relaxed, same time of day. <Link to="/body" className="text-brand underline">Progress photos →</Link></p>
         <input className="input" placeholder="Anything else? (sick, travel, stress…)" value={f.notes} onChange={e => setF({ ...f, notes: e.target.value })} />
         <button className="btn btn-primary w-full" disabled={busy} onClick={() => void save()}>{busy ? 'Saving…' : saved ? 'Saved ✓' : 'Save check-in'}</button>
       </div>

@@ -24,7 +24,7 @@ export interface GymSet { id: number; activity_id: string; date: string; exercis
 
 export interface Wellness {
   date: string; resting_hr: number | null; hrv: number | null; sleep_h: number | null; sleep_score: number | null
-  weight_kg: number | null; waist_cm: number | null; body_fat: number | null; icu_ctl: number | null; icu_atl: number | null; icu_ramp: number | null
+  weight_kg: number | null; waist_cm: number | null; neck_cm?: number | null; body_fat: number | null; icu_ctl: number | null; icu_atl: number | null; icu_ramp: number | null
   legs: number | null; energy: number | null; ankle_pain: number | null; motivation: number | null; notes: string | null
   manual: Record<string, boolean>
 }

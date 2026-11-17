@@ -4,6 +4,9 @@ import { AXIS, Card, Empty, GRID, Legend, Stat, Tip } from '../components/ui'
 import { fetchAll, getActs, getEvents, getPlanned, getSets, getSettings, getWellness, useLoad } from '../lib/data'
 import { supabase } from '../lib/supabase'
 import { kcalOut, KCAL_PER_KG } from '../lib/calories'
+import { navyBf } from '../lib/body'
+import { Link } from 'react-router-dom'
+import Icon from '../components/Icon'
 import { addDays, dm, monday, num, pace, today } from '../lib/format'
 import { e1rm, pmc, rolling } from '../lib/load'
 import { useSynced } from './Today'
@@ -18,7 +21,8 @@ export default function Trends() {
   const { data, reload } = useLoad(async () => {
     const [acts, well, planned, sets, settings, events, meals] = await Promise.all([getActs(warm, t), getWellness(from, t), getPlanned(from, addDays(t, 210)), getSets(from), getSettings(), getEvents(),
       fetchAll<{ date: string; kcal: number; protein_g: number | null }>(() => supabase.from('tr_meals').select('date,kcal,protein_g').gte('date', from).order('date'))])
-    return { acts, well, planned, sets, settings, events, meals }
+    const { data: photos } = await supabase.from('tr_body_photos').select('date,ai').gte('date', from).order('date')
+    return { acts, well, planned, sets, settings, events, meals, photos: (photos ?? []) as { date: string; ai: { usable: boolean; bf_low: number; bf_high: number; bf_best: number } | null }[] }
   }, [days])
   useSynced(reload)
 
@@ -92,9 +96,20 @@ export default function Trends() {
     }
     const cal = [...calWeeks.values()].sort((a, b) => a.wk.localeCompare(b.wk)).map(w => ({ wk: w.wk, days: w.days, in: Math.round(w.inK / w.days), out: Math.round(w.outK / w.days), net: Math.round((w.inK - w.outK) / w.days), protein: Math.round(w.protein / w.days), kgWeek: +(((w.inK - w.outK) / w.days) * 7 / KCAL_PER_KG).toFixed(2) }))
 
+    // body fat: tape (Navy) on every day with a waist reading, carrying the last neck; photo reads as points with their range
+    let lastNeck: number | null = null
+    const bfMap = new Map<string, { date: string; tape: number | null; photo: number | null; lo: number | null; hi: number | null }>()
+    for (const w of data.well) {
+      if (w.neck_cm) lastNeck = w.neck_cm
+      const t = navyBf(w.waist_cm, lastNeck, data.settings.height_cm)
+      if (t != null) bfMap.set(w.date, { date: w.date, tape: t, photo: null, lo: null, hi: null })
+    }
+    for (const p of data.photos) if (p.ai?.usable) { const r = bfMap.get(p.date) ?? { date: p.date, tape: null, photo: null, lo: null, hi: null }; r.photo = p.ai.bf_best; r.lo = p.ai.bf_low; r.hi = p.ai.bf_high; bfMap.set(p.date, r) }
+    const bf = [...bfMap.values()].sort((a, b) => a.date.localeCompare(b.date))
+
     // FTP as intervals.icu saw it on each ride
     const ftp = data.acts.filter(a => a.date >= from && a.sport === 'ride' && a.ftp).map(a => ({ date: a.date, ftp: a.ftp }))
-    return { cal, pm, atRace, nowP, ramp, wk, well, lastKg, lastWaist, easyRuns, easyRides, zones, gym, liftsSeen, ftp, race }
+    return { bf, cal, pm, atRace, nowP, ramp, wk, well, lastKg, lastWaist, easyRuns, easyRides, zones, gym, liftsSeen, ftp, race }
   }, [data, from, t, warm])
 
   if (!data || !v) return <p className="text-muted py-10 text-center animate-pulse">Loading…</p>
@@ -118,6 +133,7 @@ export default function Trends() {
     zones: { key: 'run-intensity', title: 'Run intensity (80/20)', range, about: 'Share of weekly running time in HR zones: easy Z1–2, moderate Z3, hard Z4–5. Target ~80% easy.', data: v.zones },
     gym: { key: 'leg-strength', title: 'Leg strength', range, about: 'Best estimated one-rep max (Epley, from logged kg × reps) per session for the main leg lifts.', data: v.gym },
     compliance: { key: 'compliance', title: 'Plan compliance', range, about: 'Share of planned (non-rest) sessions done each week.', data: v.wk.filter(w => w.pct != null).map(w => ({ wk: w.wk, pct: w.pct })) },
+    bodyfat: { key: 'body-fat', title: 'Body fat', range, about: 'Body-fat %: tape estimate (US Navy method from waist at navel, neck and height, ±3–4%) on each day with a waist reading, and visual reads of monthly progress photos (best estimate with low–high range, ±4–5%). Weight is in the context; fat vs lean mass follows from weight × body fat.', data: { bf: v.bf, weight7: v.well.filter(w => w.kg7).map(w => ({ d: w.date, kg7: w.kg7 })) } },
     calories: { key: 'calories', title: 'Calories in and out', range, about: 'Weekly averages per logged day: kcal eaten (meals read from photos/dictation, reviewed by Herman) vs kcal out (resting burn × non-exercise factor + Garmin session calories), net, protein, and the weight change that net implies (7,700 kcal ≈ 1 kg). Compare with the actual weight trend.', data: { weeks: v.cal, weight: v.well.filter(w => w.kg7).map(w => ({ d: w.date, kg7: w.kg7 })) } },
     ftp: { key: 'ftp', title: 'FTP', range, about: `FTP as intervals.icu applied it per ride; working value ${data.settings.ftp_w ?? 310} W.`, data: v.ftp },
   }
@@ -238,6 +254,21 @@ export default function Trends() {
             </ResponsiveContainer>) : <Empty>Measure weekly at the navel, same time of day, and log it in the check-in.</Empty>}
         </Card>
       </div>
+
+      <Card ai={AI.bodyfat} title="Body fat" sub="Tape estimate (waist + neck + height) and progress-photo reads. Trend matters more than any one number."
+        right={<Link to="/body" className="chip !py-1 !px-2.5"><Icon name="camera" size={13} />Photos</Link>}>
+        {v.bf.length ? <>
+          <Legend items={[{ label: 'Tape (Navy)', color: 'var(--s5)' }, { label: 'Photo read', color: 'var(--s7)' }]} />
+          <ResponsiveContainer width="100%" height={180}>
+            <ComposedChart data={v.bf} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+              <CartesianGrid {...GRID} /><XAxis dataKey="date" {...AXIS} tickFormatter={tick} minTickGap={40} /><YAxis {...AXIS} domain={['dataMin - 2', 'dataMax + 2']} />
+              <Tooltip content={<Tip labelFormat={tick} fmt={x => `${x}%`} />} />
+              <Line dataKey="tape" name="Tape" stroke="var(--s5)" strokeWidth={2} dot={{ r: 2 }} connectNulls />
+              <Line dataKey="photo" name="Photo" stroke="var(--s7)" strokeWidth={0} dot={{ r: 5, strokeWidth: 2, stroke: 'var(--surface)' }} connectNulls={false} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </> : <Empty>Log waist and neck in the check-in, or add progress photos.</Empty>}
+      </Card>
 
       <Card ai={AI.calories} title="Calories in and out" sub="Average per logged day, by week. Out = resting burn + Garmin session calories. Days without food logged are left out.">
         {v.cal.length ? <>

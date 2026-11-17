@@ -31,6 +31,7 @@ GOAL — Comrades Down Run, Sun 13 June 2027, ~91 km Pietermaritzburg → Durban
 PRINCIPLES
 - About 80% of running at conversational effort (easy HR cap from settings until the 10 km time trial sets paces). Weekly km in the phase table are CEILINGS, not targets; the ankle and the December time trial set the real numbers. Ramp run volume no more than ~10% a week; every 3rd or 4th week is a recovery week (~30% less), plus the weeks after the qualifier, Cancún and Loskop.
 - Heavy leg strength through every phase (back squat or trap-bar deadlift, Romanian deadlift, Bulgarian split squat, slow eccentric step-downs, heavy straight- and bent-knee calf raises), capped at 2 leg sessions a week, heavy and low-rep. Leg gym goes on quality-run days, at least 6 hours after the run (pm slot). Never legs the day before a long run or within 5 days of a race that matters. If a gym session and a key run clash, the gym goes.
+- Body composition ("body_composition"): tape estimates (US Navy, ±3–4%) and visual reads of monthly progress photos (±4–5%). Use the trend with weight to judge fat vs lean change — e.g. weight flat while waist and body fat fall during heavy lifting is a good result. Never treat one reading as a trend.
 - Mobility: the app has guided workouts ("workout_library"). Schedule them as sport "mobility" with targets.workout_id set, on easy or rest days or the evening before a long run (not right before a hard session). "Hip mobility for running" 2–3 times a week suits him (stride, glute-medius control for the ankle/pronation issue). It counts as near-zero load.
 - Upper-body gym is recovery-grade: it must not add fatigue — moderate loads, no failure. It can sit on easy or rest days.
 - Bike as support: 1–2 easy rides a week through April for low-impact aerobic volume (easy band above).
@@ -132,6 +133,21 @@ Deno.serve(async (req) => {
       admin.from("tr_meals").select("date,meal,description,kcal,protein_g,carbs_g,fat_g").gte("date", addDays(today, -14)).order("date"),
     ]);
     const { data: library } = await admin.from("tr_workouts").select("id,name,category,duration_min,when_to_use");
+    // body composition trend: tape (US Navy) from waist/neck/height and visual reads of progress photos — numbers only, never photos
+    const { data: bodyRows } = await admin.from("tr_wellness").select("date,weight_kg,waist_cm,neck_cm").gte("date", addDays(today, -120)).order("date");
+    const { data: photoReads } = await admin.from("tr_body_photos").select("date,weight_kg,ai").gte("date", addDays(today, -365)).order("date");
+    const h = Number(settings.data?.height_cm ?? 0);
+    let neck: number | null = null;
+    const tape = (bodyRows ?? []).flatMap((r) => {
+      if (r.neck_cm) neck = Number(r.neck_cm);
+      if (!r.waist_cm || !neck || !h || Number(r.waist_cm) <= neck) return [];
+      const bf = 495 / (1.0324 - 0.19077 * Math.log10(Number(r.waist_cm) - neck) + 0.15456 * Math.log10(h)) - 450;
+      return [{ date: r.date, waist_cm: r.waist_cm, neck_cm: neck, weight_kg: r.weight_kg, tape_bf: Math.round(bf * 10) / 10 }];
+    });
+    const body_composition = {
+      tape_estimates: tape.slice(-20),
+      photo_reads: (photoReads ?? []).filter((p) => p.ai?.usable).map((p) => ({ date: p.date, weight_kg: p.weight_kg, bf_low: p.ai.bf_low, bf_high: p.ai.bf_high, bf_best: p.ai.bf_best, changes: p.ai.changes })),
+    };
     // food per day, with Garmin session calories alongside for the balance
     const foodDays = new Map<string, { kcal: number; protein_g: number; carbs_g: number; meals: string[] }>();
     for (const m of meals.data ?? []) {
@@ -165,6 +181,7 @@ Deno.serve(async (req) => {
       gym_sets_last_35_days: sets.data,
       food_last_14_days: food,
       workout_library: library ?? [],
+      body_composition,
       load_last_28_days: pmc.slice(-28),
       pending_proposals: pending.data,
     };

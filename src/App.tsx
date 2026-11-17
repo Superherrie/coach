@@ -9,6 +9,7 @@ import Trends from './pages/Trends'
 import Coach from './pages/Coach'
 import Settings from './pages/Settings'
 import Workouts from './pages/Workouts'
+import Body from './pages/Body'
 
 /** a crash on one screen must not blank the whole app */
 class Boundary extends Component<{ children: ReactNode }, { error?: Error }> {
@@ -39,6 +40,7 @@ function Shell() {
         <Route path="coach" element={<Boundary><Coach /></Boundary>} />
         <Route path="settings" element={<Boundary><Settings /></Boundary>} />
         <Route path="workouts" element={<Boundary><Workouts /></Boundary>} />
+        <Route path="body" element={<Boundary><Body /></Boundary>} />
         <Route path="workouts/:id" element={<Boundary><Workouts /></Boundary>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

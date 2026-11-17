@@ -52,7 +52,8 @@ export function FoodCard({ day, acts, body, deficit, openReq = 0 }: { day: strin
 }
 
 /** downscale a phone photo to ≤1280 px JPEG before sending it */
-async function shrink(file: File): Promise<string> {
+// eslint-disable-next-line react-refresh/only-export-components
+export async function shrink(file: File): Promise<string> {
   const img = await createImageBitmap(file)
   const s = Math.min(1, 1280 / Math.max(img.width, img.height))
   const c = document.createElement('canvas'); c.width = Math.round(img.width * s); c.height = Math.round(img.height * s)
