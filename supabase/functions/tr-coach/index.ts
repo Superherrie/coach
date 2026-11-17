@@ -80,6 +80,13 @@ const Chat = z.object({
   changes: z.array(Change).describe("only if he asked for a plan change or the answer requires one; these come to him as a proposal to accept"),
 });
 
+const Insight = z.object({
+  headline: z.string().describe("one sentence: the single most important thing this chart says right now"),
+  points: z.array(z.string()).describe("2–4 short bullets with the numbers behind it and what is driving it"),
+  on_track: z.enum(["on_track", "watch", "concern", "too_little_data"]).describe("for this point in the Comrades build"),
+  action: z.string().nullable().describe("the one thing worth doing about it, or null if nothing"),
+});
+
 // ---------- load maths (same as the app) ----------
 const IF: Record<string, number> = { rest: 0, recovery: 0.6, easy: 0.7, moderate: 0.8, hard: 0.88, race: 0.9 };
 function actLoad(a: { load: number | null; duration_s: number | null; rpe: number | null; sport: string }) {
@@ -103,8 +110,9 @@ Deno.serve(async (req) => {
     }
     if (!Deno.env.get("ANTHROPIC_API_KEY")) return json({ error: "No ANTHROPIC_API_KEY secret in Supabase" }, 503);
     const body = await req.json().catch(() => ({}));
-    const mode: "daily" | "chat" = body.mode === "chat" ? "chat" : "daily";
+    const mode: "daily" | "chat" | "insight" = body.mode === "chat" ? "chat" : body.mode === "insight" ? "insight" : "daily";
     if (mode === "chat" && !String(body.message ?? "").trim()) return json({ error: "message required" }, 400);
+    if (mode === "insight" && (!body.chart || !body.data)) return json({ error: "chart and data required" }, 400);
 
     const today = sastToday();
     const from = addDays(today, -28), to = addDays(today, 21), loadFrom = addDays(today, -120);
@@ -145,6 +153,38 @@ Deno.serve(async (req) => {
       load_last_28_days: pmc.slice(-28),
       pending_proposals: pending.data,
     };
+
+    // ---- chart insight: read-only analysis of one Trends chart, never changes the plan ----
+    if (mode === "insight") {
+      const chart = String(body.chart).slice(0, 60);
+      const kind = `insight:${chart}`;
+      const { data: run } = await admin.from("tr_coach_runs").insert({ kind }).select("id").single();
+      runId = run?.id ?? null;
+      const text = `Herman tapped the AI button on the "${String(body.title ?? chart)}" chart on the Trends screen (range: ${String(body.range ?? "")}).
+What the chart shows: ${String(body.about ?? "")}
+
+CHART DATA (JSON, exactly what is plotted):
+${JSON.stringify(body.data).slice(0, 120000)}
+
+Give him insight on THIS chart: what the trend actually is (with the numbers), what is driving it (use the plan, sessions, wellness, phases and races in the context), whether it is where it should be for this point of the Comrades build, and the one thing worth doing about it. Say plainly when the data is too thin or a measurement quirk could explain it (e.g. Strava-imported rides scored on average watts, HR strap spikes, gearing). Do not repeat the chart back; interpret it. Do not change the plan here.
+
+CONTEXT (JSON):
+${JSON.stringify(context)}`;
+      const client = new Anthropic();
+      const primary = settings.data?.coach_model || "claude-opus-5-5";
+      const ask = (model: string) => client.messages.parse({
+        model, max_tokens: 16000,
+        output_config: { effort: "medium", format: zodOutputFormat(Insight) },
+        system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral", ttl: "1h" } }],
+        messages: [{ role: "user", content: text }],
+      });
+      let res = await ask(primary); let model = primary;
+      if (res.stop_reason === "refusal") { model = "claude-sonnet-5-5"; res = await ask(model); }
+      if (res.stop_reason === "refusal" || !res.parsed_output) throw new Error(`Claude returned no usable answer (${res.stop_reason})`);
+      const insight = res.parsed_output;
+      await admin.from("tr_coach_runs").update({ summary: JSON.stringify(insight), model, usage: res.usage }).eq("id", runId);
+      return json({ ok: true, insight, created_at: new Date().toISOString(), model });
+    }
 
     const userText = mode === "daily"
       ? `Daily review for ${today}. Compare the last days with the plan, read the wellness trend and the check-in, then adjust the next 14 days only where needed. If nothing needs changing, return no changes.\n\nDATA (JSON):\n${JSON.stringify(context)}`

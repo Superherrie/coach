@@ -61,7 +61,7 @@ export default function Trends() {
     const easyRides = data.acts.filter(a => a.date >= from && a.sport === 'ride' && a.avg_watts && a.avg_hr && (a.intensity ?? 100) < 75)
       .map(a => ({ x: Date.parse(a.date), date: a.date, eff: +(a.avg_watts! / a.avg_hr!).toFixed(2), w: a.avg_watts, hr: a.avg_hr }))
 
-    // intensity distribution for runs (HR zones, last 4 weeks by week): easy = Z1–Z2
+    // intensity distribution for runs (HR zones, last 4 weeks by week): easy = Z1â€“Z2
     const zoneWeeks = new Map<string, { wk: string; easy: number; mid: number; hard: number }>()
     for (const a of data.acts.filter(a => a.date >= from && a.sport === 'run' && a.hr_zone_s?.length)) {
       const k = monday(a.date); const z = a.hr_zone_s!; const e = (z[0] ?? 0) + (z[1] ?? 0), m = z[2] ?? 0, h = z.slice(3).reduce((s, x) => s + (x ?? 0), 0)
@@ -83,10 +83,29 @@ export default function Trends() {
     return { pm, atRace, nowP, ramp, wk, well, lastKg, lastWaist, easyRuns, easyRides, zones, gym, liftsSeen, ftp, race }
   }, [data, from, t, warm])
 
-  if (!data || !v) return <p className="text-muted py-10 text-center animate-pulse">Loading…</p>
+  if (!data || !v) return <p className="text-muted py-10 text-center animate-pulse">Loadingâ€¦</p>
   const h = data.settings.height_cm
   const whtr = v.lastWaist && h ? v.lastWaist / h : null
   const avgPct = (() => { const z = v.zones.slice(-4); return z.length ? Math.round(z.reduce((s, x) => s + x.easy, 0) / z.length) : null })()
+  const range = RANGES.find(r => r.k === days)?.l ?? `${days} days`
+  // what each chart plots, handed to the AI button (rounded and trimmed so the request stays small)
+  const r1 = (x: number | null | undefined) => (x == null ? null : Math.round(x * 10) / 10)
+  const AI = {
+    pmc: { key: 'pmc', title: 'Fitness, fatigue and form', range, about: 'Daily TSS-like load as fitness (42-day CTL), fatigue (7-day ATL) and form (TSB). Values after today are a projection of the planned sessions to Comrades.',
+      data: v.pm.filter((_, i, a) => a.length < 200 || i % 2 === 0 || a[i].date === t).map(d => ({ d: d.date, load: d.load, fit: r1(d.fitness ?? d.pFit), fat: r1(d.fatigue ?? d.pFat), form: r1(d.form), plan: d.date > t })) },
+    volume: { key: 'run-volume', title: 'Running volume', range, about: 'Weekly running km done vs planned km (the plan km are ceilings), and the longest run each week.', data: v.wk.map(w => ({ wk: w.wk, km: w.km, plan: w.kmPlan, long: w.long })) },
+    hours: { key: 'hours', title: 'Hours by type', range, about: 'Weekly training hours by type (run, ride, leg gym, upper gym, other).', data: v.wk.map(w => ({ wk: w.wk, run: w.run, ride: w.ride, legs: w.legs, upper: w.upper, other: w.other })) },
+    rhr: { key: 'rhr', title: 'Resting heart rate', range, about: 'Morning resting HR from Garmin with a 7-day average.', data: v.well.map(w => ({ d: w.date, rhr: w.rhr, avg7: w.rhr7 })) },
+    hrv: { key: 'hrv', title: 'HRV', range, about: 'Overnight HRV (rMSSD) from Garmin with a 7-day average.', data: v.well.map(w => ({ d: w.date, hrv: w.hrv, avg7: w.hrv7, sleep_h: w.sleep })) },
+    weight: { key: 'weight', title: 'Weight', range, about: `Weigh-ins with a 7-day average; goal â‰¤ ${data.settings.goal_weight_kg ?? 91} kg by mid-May 2027 (plan target 85â€“91 kg).`, data: v.well.filter(w => w.kg).map(w => ({ d: w.date, kg: w.kg, avg7: w.kg7 })) },
+    waist: { key: 'waist', title: 'Waist', range, about: `Waist in cm; height ${h ?? 'unknown'} cm, waist-to-height target under 0.50.`, data: v.well.filter(w => w.waist).map(w => ({ d: w.date, cm: w.waist })) },
+    runEff: { key: 'run-efficiency', title: 'Easy-run efficiency', range, about: 'Easy runs only: metres per minute per heartbeat (higher = fitter), with pace (s/km, grade-adjusted where available) and HR.', data: v.easyRuns.map(r => ({ d: r.date, eff: r.eff, pace_s: r.pace, hr: r.hr, km: r.km })) },
+    rideEff: { key: 'ride-efficiency', title: 'Easy-ride efficiency', range, about: 'Easy rides only: average watts Ã· average HR (EF). Indoor vs outdoor and the bike used affect this.', data: v.easyRides.map(r => ({ d: r.date, ef: r.eff, w: r.w, hr: r.hr })) },
+    zones: { key: 'run-intensity', title: 'Run intensity (80/20)', range, about: 'Share of weekly running time in HR zones: easy Z1â€“2, moderate Z3, hard Z4â€“5. Target ~80% easy.', data: v.zones },
+    gym: { key: 'leg-strength', title: 'Leg strength', range, about: 'Best estimated one-rep max (Epley, from logged kg Ã— reps) per session for the main leg lifts.', data: v.gym },
+    compliance: { key: 'compliance', title: 'Plan compliance', range, about: 'Share of planned (non-rest) sessions done each week.', data: v.wk.filter(w => w.pct != null).map(w => ({ wk: w.wk, pct: w.pct })) },
+    ftp: { key: 'ftp', title: 'FTP', range, about: `FTP as intervals.icu applied it per ride; working value ${data.settings.ftp_w ?? 310} W.`, data: v.ftp },
+  }
 
   return (
     <div className="space-y-4 py-3">
@@ -97,12 +116,12 @@ export default function Trends() {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
         <Stat label="Fitness" value={num(v.nowP?.fitness)} sub={v.ramp != null ? `${v.ramp >= 0 ? '+' : ''}${num(v.ramp)} in 4 weeks` : ''} tone={v.ramp != null && v.ramp > 8 ? 'warn' : undefined} />
-        <Stat label="Form" value={num(v.nowP?.form)} sub="fitness − fatigue" tone={(v.nowP?.form ?? 0) < -25 ? 'bad' : undefined} />
-        <Stat label="Weight" value={v.lastKg ? `${num(v.lastKg, 1)}` : '—'} sub={`goal ≤ ${data.settings.goal_weight_kg ?? 91} kg by mid-May`} />
-        <Stat label="Waist / height" value={whtr ? whtr.toFixed(2) : '—'} sub={v.lastWaist ? `${v.lastWaist} cm${h ? '' : ' · add height in Settings'}` : 'log waist in check-in'} tone={whtr ? (whtr < 0.5 ? 'good' : 'warn') : undefined} />
+        <Stat label="Form" value={num(v.nowP?.form)} sub="fitness âˆ’ fatigue" tone={(v.nowP?.form ?? 0) < -25 ? 'bad' : undefined} />
+        <Stat label="Weight" value={v.lastKg ? `${num(v.lastKg, 1)}` : 'â€”'} sub={`goal â‰¤ ${data.settings.goal_weight_kg ?? 91} kg by mid-May`} />
+        <Stat label="Waist / height" value={whtr ? whtr.toFixed(2) : 'â€”'} sub={v.lastWaist ? `${v.lastWaist} cm${h ? '' : ' Â· add height in Settings'}` : 'log waist in check-in'} tone={whtr ? (whtr < 0.5 ? 'good' : 'warn') : undefined} />
       </div>
 
-      <Card title="Fitness, fatigue and form" sub={`Daily training load as fitness (42-day) and fatigue (7-day). Dashed = what the plan would do to race day (fitness ${num(v.atRace?.fitness)} on ${dm(v.race)}).`}>
+      <Card ai={AI.pmc} title="Fitness, fatigue and form" sub={`Daily training load as fitness (42-day) and fatigue (7-day). Dashed = what the plan would do to race day (fitness ${num(v.atRace?.fitness)} on ${dm(v.race)}).`}>
         <Legend items={[{ label: 'Fitness', color: 'var(--s2)' }, { label: 'Fatigue', color: 'var(--s1)' }, { label: 'Planned', color: 'var(--muted)', dashed: true }]} />
         <ResponsiveContainer width="100%" height={H}>
           <LineChart data={v.pm} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
@@ -124,10 +143,10 @@ export default function Trends() {
             <Area dataKey="form" name="Form" stroke="var(--s7)" fill="var(--s7)" fillOpacity={0.15} strokeWidth={2} />
           </ComposedChart>
         </ResponsiveContainer>
-        <p className="text-xs text-muted mt-1">Below −25 (red line) = deep fatigue; the coach eases the next day. Fitness rising more than ~8 a month is a fast ramp.</p>
+        <p className="text-xs text-muted mt-1">Below âˆ’25 (red line) = deep fatigue; the coach eases the next day. Fitness rising more than ~8 a month is a fast ramp.</p>
       </Card>
 
-      <Card title="Running volume" sub="Weekly km done against the planned km (the plan's ceiling), and the week's longest run">
+      <Card ai={AI.volume} title="Running volume" sub="Weekly km done against the planned km (the plan's ceiling), and the week's longest run">
         <Legend items={[{ label: 'Run km', color: 'var(--s1)', box: true }, { label: 'Planned', color: 'var(--muted)', dashed: true }, { label: 'Longest run', color: 'var(--s2)' }]} />
         <ResponsiveContainer width="100%" height={H}>
           <ComposedChart data={v.wk} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
@@ -140,7 +159,7 @@ export default function Trends() {
         </ResponsiveContainer>
       </Card>
 
-      <Card title="Hours by type" sub="Weekly training time. Upper-body gym is recovery-grade and counts at 30% in the load.">
+      <Card ai={AI.hours} title="Hours by type" sub="Weekly training time. Upper-body gym is recovery-grade and counts at 30% in the load.">
         <Legend items={[{ label: 'Run', color: 'var(--s1)', box: true }, { label: 'Ride', color: 'var(--s2)', box: true }, { label: 'Legs', color: 'var(--s3)', box: true }, { label: 'Upper', color: 'var(--s7)', box: true }, { label: 'Other', color: 'var(--s-other)', box: true }]} />
         <ResponsiveContainer width="100%" height={H}>
           <BarChart data={v.wk} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
@@ -155,7 +174,7 @@ export default function Trends() {
       </Card>
 
       <div className="grid md:grid-cols-2 gap-4">
-        <Card title="Resting heart rate" sub="Morning value from Garmin, 7-day average">
+        <Card ai={AI.rhr} title="Resting heart rate" sub="Morning value from Garmin, 7-day average">
           {v.well.some(w => w.rhr) ? <>
             <Legend items={[{ label: 'Daily', color: 'var(--s8)' }, { label: '7-day', color: 'var(--ink)' }]} />
             <ResponsiveContainer width="100%" height={170}>
@@ -167,7 +186,7 @@ export default function Trends() {
               </LineChart>
             </ResponsiveContainer></> : <Empty>Comes from your Garmin once intervals.icu is connected.</Empty>}
         </Card>
-        <Card title="HRV" sub="Overnight HRV (rMSSD) from Garmin, 7-day average — falling = fatigue or illness">
+        <Card ai={AI.hrv} title="HRV" sub="Overnight HRV (rMSSD) from Garmin, 7-day average â€” falling = fatigue or illness">
           {v.well.some(w => w.hrv) ? <>
             <Legend items={[{ label: 'Nightly', color: 'var(--s3)' }, { label: '7-day', color: 'var(--ink)' }]} />
             <ResponsiveContainer width="100%" height={170}>
@@ -179,7 +198,7 @@ export default function Trends() {
               </LineChart>
             </ResponsiveContainer></> : <Empty>Comes from your Garmin once intervals.icu is connected.</Empty>}
         </Card>
-        <Card title="Weight" sub={`Daily weigh-ins and 7-day average · checkpoint ≤ ${data.settings.goal_weight_kg ?? 91} kg mid-May`}>
+        <Card ai={AI.weight} title="Weight" sub={`Daily weigh-ins and 7-day average Â· checkpoint â‰¤ ${data.settings.goal_weight_kg ?? 91} kg mid-May`}>
           {v.well.some(w => w.kg) ? <>
             <Legend items={[{ label: 'Weigh-in', color: 'var(--s2)' }, { label: '7-day', color: 'var(--ink)' }, { label: 'Goal', color: 'var(--good)', dashed: true }]} />
             <ResponsiveContainer width="100%" height={170}>
@@ -192,7 +211,7 @@ export default function Trends() {
               </LineChart>
             </ResponsiveContainer></> : <Empty>Log weight in the check-in (or a Garmin scale syncs it).</Empty>}
         </Card>
-        <Card title="Waist" sub={h ? `cm · waist-to-height under 0.50 = under ${Math.round(h * 0.5)} cm` : 'cm · add your height in Settings for the ratio'}>
+        <Card ai={AI.waist} title="Waist" sub={h ? `cm Â· waist-to-height under 0.50 = under ${Math.round(h * 0.5)} cm` : 'cm Â· add your height in Settings for the ratio'}>
           {v.well.some(w => w.waist) ? (
             <ResponsiveContainer width="100%" height={170}>
               <LineChart data={v.well.filter(w => w.waist)} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
@@ -206,33 +225,33 @@ export default function Trends() {
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">
-        <Card title="Easy-run efficiency" sub="Metres per minute per heartbeat on easy runs (higher = fitter at the same effort). Uses grade-adjusted pace where Garmin has it.">
+        <Card ai={AI.runEff} title="Easy-run efficiency" sub="Metres per minute per heartbeat on easy runs (higher = fitter at the same effort). Uses grade-adjusted pace where Garmin has it.">
           {v.easyRuns.length >= 2 ? (
             <ResponsiveContainer width="100%" height={180}>
               <ScatterChart margin={{ top: 5, right: 5, left: -15, bottom: 0 }}>
                 <CartesianGrid {...GRID} /><XAxis dataKey="x" type="number" domain={['dataMin', 'dataMax']} {...AXIS} tickFormatter={x => dm(new Date(x).toISOString().slice(0, 10))} />
                 <YAxis dataKey="eff" {...AXIS} domain={['dataMin - 0.05', 'dataMax + 0.05']} tickFormatter={x => x.toFixed(2)} /><ZAxis range={[60, 60]} />
-                <Tooltip content={({ active, payload }) => active && payload?.[0] ? (() => { const p = payload[0].payload; return <div className="rounded-xl border border-line bg-surface px-3 py-2 text-xs shadow-lg"><p className="font-semibold">{dm(p.date)} · {p.km} km</p><p className="text-muted num">{pace(p.pace)} at HR {p.hr} · {p.eff}</p></div> })() : null} />
+                <Tooltip content={({ active, payload }) => active && payload?.[0] ? (() => { const p = payload[0].payload; return <div className="rounded-xl border border-line bg-surface px-3 py-2 text-xs shadow-lg"><p className="font-semibold">{dm(p.date)} Â· {p.km} km</p><p className="text-muted num">{pace(p.pace)} at HR {p.hr} Â· {p.eff}</p></div> })() : null} />
                 <Scatter data={v.easyRuns} fill="var(--s1)" stroke="var(--surface)" strokeWidth={2} />
               </ScatterChart>
             </ResponsiveContainer>) : <Empty>Needs a few easy runs from Garmin.</Empty>}
         </Card>
-        <Card title="Easy-ride efficiency" sub="Watts per heartbeat on easy rides (your 1.74–1.93 range in Oct 2026). Compare within type only.">
+        <Card ai={AI.rideEff} title="Easy-ride efficiency" sub="Watts per heartbeat on easy rides (your 1.74â€“1.93 range in Oct 2026). Compare within type only.">
           {v.easyRides.length >= 2 ? (
             <ResponsiveContainer width="100%" height={180}>
               <ScatterChart margin={{ top: 5, right: 5, left: -15, bottom: 0 }}>
                 <CartesianGrid {...GRID} /><XAxis dataKey="x" type="number" domain={['dataMin', 'dataMax']} {...AXIS} tickFormatter={x => dm(new Date(x).toISOString().slice(0, 10))} />
                 <YAxis dataKey="eff" {...AXIS} domain={['dataMin - 0.1', 'dataMax + 0.1']} tickFormatter={x => x.toFixed(2)} /><ZAxis range={[60, 60]} />
-                <Tooltip content={({ active, payload }) => active && payload?.[0] ? (() => { const p = payload[0].payload; return <div className="rounded-xl border border-line bg-surface px-3 py-2 text-xs shadow-lg"><p className="font-semibold">{dm(p.date)}</p><p className="text-muted num">{p.w} W at HR {p.hr} · EF {p.eff}</p></div> })() : null} />
+                <Tooltip content={({ active, payload }) => active && payload?.[0] ? (() => { const p = payload[0].payload; return <div className="rounded-xl border border-line bg-surface px-3 py-2 text-xs shadow-lg"><p className="font-semibold">{dm(p.date)}</p><p className="text-muted num">{p.w} W at HR {p.hr} Â· EF {p.eff}</p></div> })() : null} />
                 <Scatter data={v.easyRides} fill="var(--s2)" stroke="var(--surface)" strokeWidth={2} />
               </ScatterChart>
             </ResponsiveContainer>) : <Empty>Needs a few easy rides with power from Garmin.</Empty>}
         </Card>
       </div>
 
-      <Card title="Run intensity (80/20)" sub={`Share of running time by HR zone. Target about 80% easy (Z1–Z2).${avgPct != null ? ` Last 4 weeks: ${avgPct}% easy.` : ''}`}>
+      <Card ai={AI.zones} title="Run intensity (80/20)" sub={`Share of running time by HR zone. Target about 80% easy (Z1â€“Z2).${avgPct != null ? ` Last 4 weeks: ${avgPct}% easy.` : ''}`}>
         {v.zones.length ? <>
-          <Legend items={[{ label: 'Easy Z1–2', color: 'var(--s3)', box: true }, { label: 'Moderate Z3', color: 'var(--s4)', box: true }, { label: 'Hard Z4–5', color: 'var(--s8)', box: true }]} />
+          <Legend items={[{ label: 'Easy Z1â€“2', color: 'var(--s3)', box: true }, { label: 'Moderate Z3', color: 'var(--s4)', box: true }, { label: 'Hard Z4â€“5', color: 'var(--s8)', box: true }]} />
           <ResponsiveContainer width="100%" height={170}>
             <BarChart data={v.zones} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
               <CartesianGrid {...GRID} /><XAxis dataKey="wk" {...AXIS} tickFormatter={tick} minTickGap={30} /><YAxis {...AXIS} domain={[0, 100]} />
@@ -246,7 +265,7 @@ export default function Trends() {
       </Card>
 
       <div className="grid md:grid-cols-2 gap-4">
-        <Card title="Leg strength" sub="Best estimated one-rep max per session (from kg × reps you log)">
+        <Card ai={AI.gym} title="Leg strength" sub="Best estimated one-rep max per session (from kg Ã— reps you log)">
           {v.gym.length ? <>
             <Legend items={v.liftsSeen.map((l, i) => ({ label: l, color: ['var(--s3)', 'var(--s2)', 'var(--s1)', 'var(--s7)'][i] }))} />
             <ResponsiveContainer width="100%" height={180}>
@@ -257,7 +276,7 @@ export default function Trends() {
               </LineChart>
             </ResponsiveContainer></> : <Empty>Log kg on your leg sessions and the trend appears here.</Empty>}
         </Card>
-        <Card title="Plan compliance" sub="Share of planned sessions done each week">
+        <Card ai={AI.compliance} title="Plan compliance" sub="Share of planned sessions done each week">
           <ResponsiveContainer width="100%" height={180}>
             <BarChart data={v.wk.filter(w => w.pct != null)} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
               <CartesianGrid {...GRID} /><XAxis dataKey="wk" {...AXIS} tickFormatter={tick} minTickGap={30} /><YAxis {...AXIS} domain={[0, 100]} />
@@ -269,7 +288,7 @@ export default function Trends() {
       </div>
 
       {v.ftp.length > 0 && (
-        <Card title="FTP" sub={`As intervals.icu applied it per ride · working value ${data.settings.ftp_w ?? 310} W`}>
+        <Card ai={AI.ftp} title="FTP" sub={`As intervals.icu applied it per ride Â· working value ${data.settings.ftp_w ?? 310} W`}>
           <ResponsiveContainer width="100%" height={150}>
             <LineChart data={v.ftp} margin={{ top: 5, right: 5, left: -15, bottom: 0 }}>
               <CartesianGrid {...GRID} /><XAxis dataKey="date" {...AXIS} tickFormatter={tick} minTickGap={40} /><YAxis {...AXIS} domain={['dataMin - 10', 'dataMax + 10']} />
@@ -279,7 +298,7 @@ export default function Trends() {
           </ResponsiveContainer>
         </Card>
       )}
-      <p className="text-[11px] text-muted text-center">Load is a TSS-like score: intervals.icu's figure where Garmin measured it, otherwise estimated from minutes × effort.</p>
+      <p className="text-[11px] text-muted text-center">Load is a TSS-like score: intervals.icu's figure where Garmin measured it, otherwise estimated from minutes Ã— effort.</p>
     </div>
   )
 }

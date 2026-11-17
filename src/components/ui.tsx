@@ -1,12 +1,14 @@
 import { useEffect, type ReactNode } from 'react'
 import Icon from './Icon'
+import { InsightButton, type ChartAI } from './Insight'
 
 // eslint-disable-next-line react-refresh/only-export-components
 export const AXIS = { tick: { fill: 'var(--muted)', fontSize: 11 }, axisLine: false, tickLine: false } as const
 // eslint-disable-next-line react-refresh/only-export-components
 export const GRID = { stroke: 'var(--line)', strokeDasharray: '0', vertical: false } as const
 
-export function Card({ title, sub, right, children, className = '' }: { title?: ReactNode; sub?: ReactNode; right?: ReactNode; children: ReactNode; className?: string }) {
+export function Card({ title, sub, right, ai, children, className = '' }: { title?: ReactNode; sub?: ReactNode; right?: ReactNode; ai?: ChartAI; children: ReactNode; className?: string }) {
+  if (ai) right = <span className="flex items-center gap-1.5">{right}<InsightButton ai={ai} /></span>
   return (
     <section className={`card p-4 md:p-5 ${className}`}>
       {(title || right) && (
