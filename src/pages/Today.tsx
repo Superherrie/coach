@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { navyBf } from '../lib/body'
+import type { Paces } from '../lib/paces'
 import Icon from '../components/Icon'
 import { Card, Scale, Stat } from '../components/ui'
 import { LogSheet, PlanSheet, SessionCard } from '../components/Session'
@@ -21,10 +22,13 @@ export default function Today() {
   const [params, setParams] = useSearchParams(); const nav = useNavigate()
   const [day, setDay] = useState(today())
   const { data, reload } = useLoad(async () => {
-    const [planned, acts, well, phases, events, pending, run, settings, sets] = await Promise.all([
-      getPlanned(day, day), getActs(addDays(day, -120), addDays(day, 0)), getWellness(addDays(day, -35), day), getPhases(), getEvents(), getPending(), getLastRun(), getSettings(), getSets(addDays(day, -120)),
+    const [planned, acts, well, phases, events, pending, run, settings, sets, weekly] = await Promise.all([
+      getPlanned(day, day), getActs(addDays(day, -120), addDays(day, 0)), getWellness(addDays(day, -35), day), getPhases(), getEvents(), getPending(), getLastRun(), getSettings(), getSets(addDays(day, -120)), getLastRun('weekly'),
     ])
-    return { planned, acts, well, phases, events, pending, run, settings, sets }
+    const dayIds = acts.filter(a => a.date === day).map(a => a.id)
+    const { data: reps } = dayIds.length ? await supabase.from('tr_session_reports').select('activity_id,report').in('activity_id', dayIds) : { data: [] }
+    const reports = Object.fromEntries((reps ?? []).map(r => [r.activity_id, r.report]))
+    return { planned, acts, well, phases, events, pending, run, settings, sets, weekly, reports }
   }, [day])
   useSynced(reload)
   const [log, setLog] = useState<{ slot: Slot; planned?: Planned; act?: Activity }>()
@@ -77,6 +81,12 @@ export default function Today() {
         <div className="rounded-2xl bg-bad/10 text-bad px-4 py-3 text-sm space-y-0.5">{stats.flags.map(f => <p key={f} className="flex gap-2"><Icon name="heart" size={16} className="shrink-0 mt-0.5" />{f}</p>)}</div>
       )}
 
+      {isToday && data.weekly && Date.now() - Date.parse(data.weekly.created_at) < 36 * 3600e3 && (
+        <Card title={<span className="flex items-center gap-2"><Icon name="calendar" size={18} className="text-ember" />Week review</span>} sub={stamp(data.weekly.created_at)}>
+          {data.weekly.today_note && <p className="font-medium text-sm mb-1">{data.weekly.today_note}</p>}
+          <p className="text-sm text-muted whitespace-pre-line">{data.weekly.summary}</p>
+        </Card>
+      )}
       {isToday && data.run && (
         <Card title={<span className="flex items-center gap-2"><Icon name="spark" size={18} className="text-ember" />Coach</span>} sub={`Review ${stamp(data.run.created_at)}`}
           right={<button className="chip" onClick={() => nav('/coach')}>Ask <Icon name="right" size={12} /></button>}>
@@ -87,7 +97,7 @@ export default function Today() {
       <Proposals items={data.pending} onDone={() => void reload()} />
 
       {(['am', 'pm'] as Slot[]).map(s => { const { p, acts } = bySlot(s); return (
-        <SessionCard key={s} slot={s} p={p} acts={acts} onLog={() => setLog({ slot: s, planned: p })} onEdit={() => p && setEdit(p)} onOpenAct={a => setLog({ slot: s, planned: p, act: a })} />
+        <SessionCard key={s} slot={s} p={p} acts={acts} paces={data.settings.paces as Paces | null} reports={data.reports} onLog={() => setLog({ slot: s, planned: p })} onEdit={() => p && setEdit(p)} onOpenAct={a => setLog({ slot: s, planned: p, act: a })} />
       ) })}
 
       <CheckIn day={day} w={w} onSaved={() => void reload()} height={data.settings.height_cm}

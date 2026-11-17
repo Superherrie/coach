@@ -13,13 +13,14 @@ const SUGGEST = ['How did last week go against the plan?', 'My ankle is sore tod
 export default function Coach() {
   const [params, setParams] = useSearchParams()
   const { data, reload } = useLoad(async () => {
-    const [chat, pending, runs, changed] = await Promise.all([
+    const [chat, pending, runs, changed, weekly] = await Promise.all([
       supabase.from('tr_chat').select('*').order('created_at', { ascending: false }).limit(40),
       getPending(),
       supabase.from('tr_coach_runs').select('*').eq('kind', 'daily').order('created_at', { ascending: false }).limit(7),
       supabase.from('tr_planned').select('*').eq('source', 'coach').order('updated_at', { ascending: false }).limit(10),
+      supabase.from('tr_coach_runs').select('*').eq('kind', 'weekly').not('summary', 'is', null).order('created_at', { ascending: false }).limit(1),
     ])
-    return { chat: (chat.data ?? []).reverse() as { id: number; role: string; content: string; created_at: string }[], pending, runs: (runs.data ?? []) as CoachRun[], changed: (changed.data ?? []) as (Planned & { updated_at: string })[] }
+    return { chat: (chat.data ?? []).reverse() as { id: number; role: string; content: string; created_at: string }[], pending, runs: (runs.data ?? []) as CoachRun[], changed: (changed.data ?? []) as (Planned & { updated_at: string })[], weekly: (weekly.data?.[0] ?? null) as CoachRun | null }
   }, [])
   const [msg, setMsg] = useState(''); const [busy, setBusy] = useState<string>(); const [err, setErr] = useState<string>()
   const end = useRef<HTMLDivElement>(null)
@@ -32,9 +33,9 @@ export default function Coach() {
     try { await callFn('tr-coach', { mode: 'chat', message: text }) } catch (e) { setErr((e as Error).message); setMsg(text) }
     await reload(); setBusy(undefined)
   }
-  async function review() {
-    setBusy('review'); setErr(undefined)
-    try { await callFn('tr-sync', {}).catch(() => null); await callFn('tr-coach', { mode: 'daily' }) } catch (e) { setErr((e as Error).message) }
+  async function review(mode: 'daily' | 'weekly' = 'daily') {
+    setBusy(mode === 'weekly' ? 'weekly' : 'review'); setErr(undefined)
+    try { await callFn('tr-sync', {}).catch(() => null); await callFn('tr-coach', { mode }) } catch (e) { setErr((e as Error).message) }
     await reload(); setBusy(undefined)
   }
   if (!data) return <p className="text-muted py-10 text-center animate-pulse">Loading…</p>
@@ -44,8 +45,15 @@ export default function Coach() {
     <div className="space-y-4 py-3">
       <div className="flex items-center gap-2">
         <h1 className="display text-3xl leading-none flex-1">Coach</h1>
+        <button className="btn btn-ghost !py-1.5 text-sm" disabled={!!busy} onClick={() => void review('weekly')}><Icon name="calendar" size={15} className={busy === 'weekly' ? 'animate-pulse' : ''} />{busy === 'weekly' ? 'Reviewing week…' : 'Week'}</button>
         <button className="btn btn-ghost !py-1.5 text-sm" disabled={!!busy} onClick={() => void review()}><Icon name="spark" size={15} className={busy === 'review' ? 'animate-pulse' : ''} />{busy === 'review' ? 'Reviewing…' : 'Review now'}</button>
       </div>
+      {data.weekly && (
+        <Card title={<span className="flex items-center gap-2"><Icon name="calendar" size={18} className="text-ember" />Weekly review</span>} sub={stamp(data.weekly.created_at)}>
+          {data.weekly.today_note && <p className="text-sm font-medium mb-1">{data.weekly.today_note}</p>}
+          <p className="text-sm text-muted whitespace-pre-line">{data.weekly.summary}</p>
+        </Card>
+      )}
       {last && (
         <Card title="Latest review" sub={stamp(last.created_at)}>
           {last.today_note && <p className="text-sm font-medium mb-1">{last.today_note}</p>}

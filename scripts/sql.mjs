@@ -9,7 +9,7 @@ for (const line of readFileSync(join(here, '.env'), 'utf8').split(/\r?\n/)) {
   const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
   if (m) process.env[m[1]] ??= m[2];
 }
-const sql = readFileSync(process.argv[2], 'utf8');
+const sql = readFileSync(process.argv[2], 'utf8').replace(/^﻿/, '');   // PowerShell writes a BOM
 const res = await fetch('https://api.supabase.com/v1/projects/pniqwvyscmxfxbhtsace/database/query', {
   method: 'POST',
   headers: { Authorization: `Bearer ${process.env.SUPABASE_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },

@@ -19,6 +19,19 @@ function sportOf(t: string): string {
   return "other";
 }
 
+// ---- Daniels VDOT (same maths as src/lib/paces.ts) ----
+const vo2 = (v: number) => -4.6 + 0.182258 * v + 0.000104 * v * v;
+const pctMax = (t: number) => 0.8 + 0.1894393 * Math.exp(-0.012778 * t) + 0.2989558 * Math.exp(-0.1932605 * t);
+const velFor = (target: number) => (-0.182258 + Math.sqrt(0.182258 ** 2 + 4 * 0.000104 * (target + 4.6))) / (2 * 0.000104);
+const vdotFrom = (m: number, s: number) => vo2(m / (s / 60)) / pctMax(s / 60);
+const spk = (v: number) => Math.round(60000 / v);
+function predictT(vdot: number, m: number) { let lo = 60, hi = 108000; for (let i = 0; i < 60; i++) { const mid = (lo + hi) / 2; if (vdotFrom(m, mid) > vdot) lo = mid; else hi = mid; } return Math.round((lo + hi) / 2); }
+function pacesFrom(m: number, s: number, source: string, date: string) {
+  const v = vdotFrom(m, s), mar = predictT(v, 42195);
+  return { vdot: Math.round(v * 10) / 10, source, date, easy: [spk(velFor(v * 0.70)), spk(velFor(v * 0.62))], marathon: Math.round(mar / 42.195),
+    threshold: spk(velFor(v * 0.88)), interval: spk(velFor(v * 0.975)), predict: { "10 km": predictT(v, 10000), "Half": predictT(v, 21097), "Marathon": mar, "50 km": predictT(v, 50000) } };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const url = Deno.env.get("SUPABASE_URL")!;
@@ -87,7 +100,7 @@ async function syncOne(admin: any, uid: string, body: Record<string, unknown>, k
     const acts: Record<string, unknown>[] = await icu(`/activities?oldest=${oldest}&newest=${newest}T23:59:59`);
     const usable = acts.filter((a) => String(a.source ?? "").toUpperCase() !== "STRAVA" && a.start_date_local);
     const skippedStrava = acts.length - usable.length;
-    const { data: planned } = await admin.from("tr_planned").select("id,date,slot,sport").eq("user_id", uid).gte("date", oldest).lte("date", newest);
+    const { data: planned } = await admin.from("tr_planned").select("id,date,slot,sport,intensity,title").eq("user_id", uid).gte("date", oldest).lte("date", newest);
     const { data: known } = await admin.from("tr_activities").select("id,sport,slot,planned_id,rpe,notes").eq("user_id", uid).gte("date", oldest).eq("source", "icu");
     const knownBy = new Map((known ?? []).map((k) => [k.id, k]));
     const aRows = usable.map((a) => {
@@ -141,10 +154,40 @@ async function syncOne(admin: any, uid: string, body: Record<string, unknown>, k
     const missed = (planned ?? []).filter((p) => p.date < newest && p.sport !== "rest" && !linkedIds.has(p.id)).map((p) => p.id);
     if (missed.length) await admin.from("tr_planned").update({ status: "skipped" }).in("id", missed).eq("status", "planned");
 
+    // a time trial or running race just synced → new training paces (Daniels VDOT), if it's newer than what's set
+    let pacesUpdated: string | null = null;
+    const { data: tests } = await admin.from("tr_planned").select("id,title,sport,date").eq("user_id", uid).in("id", doneIds.length ? doneIds : [-1]);
+    for (const t of (tests ?? []).filter((t) => /time trial/i.test(t.title) || t.sport === "race")) {
+      const a = aRows.find((r) => r.planned_id === t.id && r.sport === "run" && (r.distance_m ?? 0) >= 4900 && r.duration_s);
+      if (!a) continue;
+      const cur = settings?.paces as { date?: string } | null;
+      if (cur?.date && cur.date >= a.date && !/target|estimate/.test(String((cur as { source?: string }).source ?? ""))) continue;
+      const p = pacesFrom(Number(a.distance_m), Number(a.duration_s), `${t.title} on ${a.date} (${Math.round(Number(a.distance_m) / 100) / 10} km in ${Math.floor(Number(a.duration_s) / 60)}:${String(Number(a.duration_s) % 60).padStart(2, "0")})`, a.date);
+      await admin.from("tr_settings").update({ paces: p }).eq("user_id", uid);
+      pacesUpdated = `VDOT ${p.vdot}`;
+    }
+
+    // automatic reports for new long / hard sessions (not during a big back-fill; at most 3 per sync)
+    let reports = 0;
+    if (days <= 14) {
+      const fresh = aRows.filter((r) => !knownBy.has(r.id));
+      const qualifies = (r: typeof aRows[number]) => {
+        const p = (planned ?? []).find((x) => x.id === r.planned_id);
+        const min = (r.duration_s ?? 0) / 60, km = (r.distance_m ?? 0) / 1000;
+        return (r.sport === "run" && (min >= 75 || km >= 18)) || (r.sport === "ride" && min >= 150)
+          || (!!p && ["hard", "race"].includes(String(p.intensity)) && (r.sport === "run" || r.sport === "ride"));
+      };
+      for (const r of fresh.filter(qualifies).slice(0, 3)) {
+        const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/tr-report`, { method: "POST",
+          headers: { "Content-Type": "application/json", "x-cron-token": Deno.env.get("TR_CRON_TOKEN")! }, body: JSON.stringify({ user_id: uid, activity_id: r.id }) });
+        if (res.ok) reports++;
+      }
+    }
+
     // a session imported earlier from Strava history and now delivered by Garmin: keep the Garmin copy
     const { data: deduped } = await admin.rpc("tr_dedupe_strava", { p_user: uid });
 
-    const detail = { oldest, newest, wellness: wRows.length, activities: aRows.length, skipped_strava: skippedStrava, missed: missed.length, replaced_strava: deduped ?? 0 };
+    const detail = { oldest, newest, wellness: wRows.length, activities: aRows.length, skipped_strava: skippedStrava, missed: missed.length, replaced_strava: deduped ?? 0, paces_updated: pacesUpdated, reports };
     await admin.from("tr_sync_log").insert({ user_id: uid, kind, ok: true, detail });
     return { ok: true, ...detail };
   } catch (e) {

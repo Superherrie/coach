@@ -22,6 +22,7 @@ DATA YOU GET (per athlete, in the JSON)
 - Plan, sessions done (Garmin via intervals.icu, or logged by hand), morning check-in (legs, energy, pain), resting HR / HRV / sleep, gym sets.
 - food_last_14_days: meals logged (estimated from photos or dictation, ±15–20%); unlogged days are not zero days. Flag under-fuelling before long or hard sessions; keep any deficit moderate; one concrete lever beats a diet plan.
 - body_composition: tape (US Navy) and progress-photo body-fat estimates — numbers only. Read the trend with weight; never treat one reading as a trend.
+- settings.paces: the athlete's training paces (Daniels VDOT from a race or time trial): easy range, marathon, tempo (threshold), intervals, in seconds per km. Prescribe run targets from these; Johannesburg results include altitude.
 - workout_library: guided workouts; schedule them as sport "mobility" (or as fits) with targets.workout_id set.
 
 LOAD UNITS
@@ -114,7 +115,8 @@ Deno.serve(async (req) => {
     if (!Deno.env.get("ANTHROPIC_API_KEY")) return json({ error: "No ANTHROPIC_API_KEY secret in Supabase" }, 503);
     const { data: me } = await admin.from("tr_members").select("display_name").eq("user_id", uid).maybeSingle();
     const who = me?.display_name ?? "the athlete";
-    const mode: "daily" | "chat" | "insight" = body.mode === "chat" ? "chat" : body.mode === "insight" ? "insight" : "daily";
+    const mode: "daily" | "weekly" | "chat" | "insight" = body.mode === "chat" ? "chat" : body.mode === "insight" ? "insight" : body.mode === "weekly" ? "weekly" : "daily";
+    const review = mode === "daily" || mode === "weekly";
     if (mode === "chat" && !String(body.message ?? "").trim()) return json({ error: "message required" }, 400);
     if (mode === "insight" && (!body.chart || !body.data)) return json({ error: "chart and data required" }, 400);
 
@@ -122,7 +124,7 @@ Deno.serve(async (req) => {
     const profileOf = (p: string | null | undefined) => `ATHLETE PROFILE — ${who}\n${p?.trim() || "No profile written yet. Ask about their goal, event, history, injuries and weekly availability before prescribing anything ambitious; keep sessions conservative until then. Units metric."}`;
     const from = addDays(today, -28), to = addDays(today, 21), loadFrom = addDays(today, -120);
     const [settings, phases, events, planned, acts, well, sets, pending, chat, meals] = await Promise.all([
-      admin.from("tr_settings").select("height_cm,ftp_w,max_hr,run_max_hr,easy_run_hr_cap,goal_weight_kg,coach_auto,coach_model,notes,birth_year,activity_factor,kcal_deficit,sex,coach_profile").eq("user_id", uid).maybeSingle(),
+      admin.from("tr_settings").select("height_cm,ftp_w,max_hr,run_max_hr,easy_run_hr_cap,goal_weight_kg,coach_auto,coach_model,notes,birth_year,activity_factor,kcal_deficit,sex,coach_profile,paces").eq("user_id", uid).maybeSingle(),
       admin.from("tr_phases").select("name,start_date,end_date,focus,run_km_from,run_km_to,long_run_from,long_run_to,leg_sessions,key_sessions,strength_emphasis").eq("user_id", uid).order("start_date"),
       admin.from("tr_events").select("date,name,kind,distance_km,purpose,target,on_track,borderline,rethink,result").eq("user_id", uid).order("date"),
       admin.from("tr_planned").select("id,date,slot,sport,title,description,duration_min,distance_km,intensity,targets,planned_load,status,locked,source,change_note").eq("user_id", uid).gte("date", from).lte("date", to).order("date"),
@@ -220,11 +222,18 @@ ${JSON.stringify(context)}`;
       return json({ ok: true, insight, created_at: new Date().toISOString(), model });
     }
 
-    const userText = mode === "daily"
+    const weekStart = addDays(today, -((new Date(today).getUTCDay() + 6) % 7));     // Monday of this week
+    const userText = mode === "weekly"
+      ? `Weekly review, ${today} (${new Date(today).toLocaleDateString("en-ZA", { weekday: "long" })}). Review the week ${weekStart} to ${addDays(weekStart, 6)}: sessions done vs planned (count, run km vs the phase ceiling, long run, quality sessions, leg gym), load and the fitness ramp, resting HR / HRV / sleep trend, ankle and legs, food and body-composition trend if logged. Then look at NEXT week (${addDays(weekStart, 7)} to ${addDays(weekStart, 13)}) and the one after: rebuild what needs rebuilding so the phase targets stay realistic — every change goes into ONE proposal the athlete accepts with one tap (mark them scope "big"). If next week is right as planned, return no changes and say so.
+"summary": 4–6 short lines, numbers first: what happened, what it means, what changes. "today_note": one line headline for next week.
+
+DATA (JSON):
+${JSON.stringify(context)}`
+      : mode === "daily"
       ? `Daily review for ${today}. Compare the last days with the plan, read the wellness trend and the check-in, then adjust the next 14 days only where needed. If nothing needs changing, return no changes.\n\nDATA (JSON):\n${JSON.stringify(context)}`
       : `DATA (JSON):\n${JSON.stringify(context)}\n\nRECENT CHAT (newest first):\n${JSON.stringify(chat.data)}\n\n${who}: ${String(body.message).trim()}`;
 
-    const { data: run } = await admin.from("tr_coach_runs").insert({ user_id: uid, kind: mode }).select("id").single();
+    const { data: run } = await admin.from("tr_coach_runs").insert({ user_id: uid, kind: mode }).select("id").single();   // daily | weekly | chat
     runId = run?.id ?? null;
     if (mode === "chat") await admin.from("tr_chat").insert({ user_id: uid, role: "user", content: String(body.message).trim() });
 
@@ -232,7 +241,7 @@ ${JSON.stringify(context)}`;
     const primary = settings.data?.coach_model || "claude-opus-5-5";
     const ask = (model: string) => client.messages.parse({
       model, max_tokens: 16000,
-      output_config: { effort: mode === "chat" ? "medium" : "high", format: zodOutputFormat(mode === "daily" ? Daily : Chat) },
+      output_config: { effort: mode === "chat" ? "medium" : "high", format: zodOutputFormat(review ? Daily : Chat) },
       system: [{ type: "text", text: SYSTEM }, { type: "text", text: profile, cache_control: { type: "ephemeral", ttl: "1h" } }],
       messages: [{ role: "user", content: userText }],
     });
@@ -269,10 +278,10 @@ ${JSON.stringify(context)}`;
     }
     let proposalId: number | null = null;
     if (proposed.length) {
-      const { data: p } = await admin.from("tr_proposals").insert({ user_id: uid, run_id: runId, title: out.proposal_title || "Plan change", why: mode === "daily" ? out.summary : out.reply, changes: proposed }).select("id").single();
+      const { data: p } = await admin.from("tr_proposals").insert({ user_id: uid, run_id: runId, title: out.proposal_title || (mode === "weekly" ? "Next week" : "Plan change"), why: review ? out.summary : out.reply, changes: proposed }).select("id").single();
       proposalId = p?.id ?? null;
     }
-    const summary = mode === "daily" ? out.summary : out.reply;
+    const summary = review ? out.summary : out.reply;
     await admin.from("tr_coach_runs").update({ summary, today_note: out.today_note ?? null, model, usage: { ...res.usage, applied: applied.length, proposed: proposed.length } }).eq("id", runId);
     if (mode === "chat") await admin.from("tr_chat").insert({ user_id: uid, role: "assistant", content: out.reply });
     return json({ ok: true, summary, today_note: out.today_note ?? null, applied, proposal_id: proposalId, proposed: proposed.length, model, usage: res.usage });

@@ -4,6 +4,8 @@ import { Card } from '../components/ui'
 import ApiSpend from '../components/ApiSpend'
 import { callFn, getSettings, myId, useLoad } from '../lib/data'
 import Users from '../components/Users'
+import PacesCard from '../components/PacesCard'
+import type { Paces } from '../lib/paces'
 import { stamp } from '../lib/format'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
@@ -32,7 +34,7 @@ export default function Settings() {
   async function save() {
     setBusy(true)
     const n = (v: unknown) => (v === '' || v == null ? null : Number(v))
-    const { error } = await supabase.from('tr_settings').update({ height_cm: n(f.height_cm), ftp_w: n(f.ftp_w), max_hr: n(f.max_hr), run_max_hr: n(f.run_max_hr), easy_run_hr_cap: n(f.easy_run_hr_cap), goal_weight_kg: n(f.goal_weight_kg), birth_year: n(f.birth_year), activity_factor: n(f.activity_factor), kcal_deficit: n(f.kcal_deficit), coach_auto: f.coach_auto, coach_model: f.coach_model, notes: f.notes || null, sex: f.sex || null, coach_profile: f.coach_profile || null, updated_at: new Date().toISOString() }).eq('user_id', await myId())
+    const { error } = await supabase.from('tr_settings').update({ height_cm: n(f.height_cm), ftp_w: n(f.ftp_w), max_hr: n(f.max_hr), run_max_hr: n(f.run_max_hr), easy_run_hr_cap: n(f.easy_run_hr_cap), goal_weight_kg: n(f.goal_weight_kg), birth_year: n(f.birth_year), activity_factor: n(f.activity_factor), kcal_deficit: n(f.kcal_deficit), coach_auto: f.coach_auto, coach_model: f.coach_model, notes: f.notes || null, sex: f.sex || null, coach_profile: f.coach_profile || null, garmin_push: !!f.garmin_push, updated_at: new Date().toISOString() }).eq('user_id', await myId())
     setMsg(error ? error.message : 'Saved'); setBusy(false); void reload()
   }
   const num = (k: keyof S, label: string, hint?: string) => (
@@ -56,8 +58,15 @@ export default function Settings() {
           <button className="btn btn-primary" disabled={busy || (!key && !data.keySet)} onClick={() => void connect()}>{busy ? 'Working…' : data.keySet && !key ? 'Re-sync 180 days' : 'Connect'}</button>
         </div>
         <p className="text-[11px] text-muted mt-2">The six months before this were loaded once from Strava through the Strava connector; when Garmin delivers the same session, the Garmin copy replaces it. The daily sync doesn't use Strava, and sessions that reach intervals.icu only from Strava are skipped.</p>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!f.garmin_push} onChange={e => setF({ ...f, garmin_push: e.target.checked })} />Put planned sessions on my Garmin (next 14 days, updated 05:40 and 18:40)</label>
+          <button className="btn btn-ghost !py-1.5 text-sm" disabled={busy || !data.keySet} onClick={async () => { setBusy(true); try { const r = await callFn<{ pushed: number; removed: number; unchanged: number; errors: string[] }>('tr-garmin', {}); setMsg(`Garmin: ${r.pushed} sent, ${r.removed} removed, ${r.unchanged} already up to date${r.errors.length ? ` · ${r.errors.length} with errors` : ''}. They reach the watch at its next sync.`) } catch (e) { setMsg((e as Error).message) } setBusy(false) }}>Send to Garmin now</button>
+        </div>
+        <p className="text-[11px] text-muted mt-1">Needs "Upload planned workouts" ticked on the Garmin connection in intervals.icu (it is on yours).</p>
         {data.log.length > 0 && <ul className="mt-3 text-xs text-muted space-y-0.5">{data.log.map(l => <li key={l.id} className={l.ok ? '' : 'text-bad'}>{stamp(l.created_at)} · {l.ok ? `${l.detail?.activities ?? 0} sessions, ${l.detail?.wellness ?? 0} wellness days` : l.detail?.error}</li>)}</ul>}
       </Card>
+
+      <PacesCard paces={(data.s.paces as Paces | null) ?? null} onSaved={() => void reload()} />
 
       <Card title="You" sub="Used for zones, targets and the waist-to-height ratio">
         <div className="grid grid-cols-2 md:grid-cols-3 gap-2">

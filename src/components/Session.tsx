@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { callFn, useLoad } from '../lib/data'
 import Icon from './Icon'
 import { Scale, Sheet } from './ui'
 import { supabase } from '../lib/supabase'
 import { SPORT, km, mins, minsOf, pace, dmy } from '../lib/format'
 import { actLoad } from '../lib/load'
 import type { Activity, Exercise, GymSet, Planned, Slot, Sport } from '../lib/types'
+import { paceFor, type Paces } from '../lib/paces'
 
 const SPORTS: Sport[] = ['run', 'ride', 'gym_legs', 'gym_upper', 'mobility', 'rest', 'race']
 
@@ -26,12 +28,36 @@ export function actualLine(a: Activity) {
   return bits.join(' · ')
 }
 
-export function SessionCard({ slot, p, acts, onLog, onEdit, onOpenAct }: { slot: Slot; p?: Planned; acts: Activity[]; onLog: () => void; onEdit: () => void; onOpenAct: (a: Activity) => void }) {
+export interface Report { headline: string; verdict: string; numbers: { label: string; value: string }[]; points: string[]; next: string | null }
+
+/** the automatic analysis of a long / hard session, with a button to (re)run it */
+export function ReportView({ act }: { act: Activity }) {
+  const { data, reload } = useLoad(async () => (await supabase.from('tr_session_reports').select('report,created_at').eq('activity_id', act.id).maybeSingle()).data as { report: Report; created_at: string } | null, [act.id])
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState<string>()
+  if (act.source !== 'icu') return null
+  async function run() { setBusy(true); setErr(undefined); try { await callFn('tr-report', { activity_id: act.id }); await reload() } catch (e) { setErr((e as Error).message) } setBusy(false) }
+  const r = data?.report
+  return (
+    <div className="rounded-2xl bg-surface-2 p-3 mb-3">
+      {r ? <>
+        <p className="label text-brand">Session report</p>
+        <p className="font-semibold text-sm mt-0.5">{r.headline}</p>
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs mt-2">{r.numbers.flatMap(n => [<dt key={n.label + 'l'} className="text-muted">{n.label}</dt>, <dd key={n.label + 'v'} className="num">{n.value}</dd>])}</dl>
+        <ul className="text-sm space-y-1 mt-2">{r.points.map(x => <li key={x} className="flex gap-2"><span className="text-muted">•</span>{x}</li>)}</ul>
+        {r.next && <p className="text-sm mt-2"><span className="label text-brand">Next time </span>{r.next}</p>}
+        <button className="text-xs text-muted underline mt-2" disabled={busy} onClick={() => void run()}>{busy ? 'Analysing…' : 'Analyse again'}</button>
+      </> : <button className="btn btn-ghost w-full !py-1.5 text-sm" disabled={busy} onClick={() => void run()}><Icon name="spark" size={14} />{busy ? 'Analysing… (about 20 s)' : 'Analyse this session'}</button>}
+      {err && <p className="text-xs text-bad mt-1">{err}</p>}
+    </div>
+  )
+}
+
+export function SessionCard({ slot, p, acts, onLog, onEdit, onOpenAct, paces, reports }: { slot: Slot; p?: Planned; acts: Activity[]; onLog: () => void; onEdit: () => void; onOpenAct: (a: Activity) => void; paces?: Paces | null; reports?: Record<string, Report> }) {
   const [open, setOpen] = useState(false)
   const sport = (p?.sport ?? acts[0]?.sport ?? 'rest') as Sport
   const isRest = sport === 'rest' && !acts.length
   const t = p?.targets ?? {}
-  const chips = [p?.duration_min ? minsOf(p.duration_min) : null, p?.distance_km ? `${p.distance_km} km` : null, t.pace, t.watts, t.hr_max ? `HR < ${t.hr_max}` : null].filter(Boolean) as string[]
+  const chips = [p?.duration_min ? minsOf(p.duration_min) : null, p?.distance_km ? `${p.distance_km} km` : null, t.pace ?? (p ? paceFor(p, paces) : null), t.watts, t.hr_max ? `HR < ${t.hr_max}` : null].filter(Boolean) as string[]
   const status = acts.length ? 'done' : p?.status
   return (
     <div className={`card p-4 ${isRest ? 'opacity-80' : ''}`}>
@@ -57,6 +83,7 @@ export function SessionCard({ slot, p, acts, onLog, onEdit, onOpenAct }: { slot:
             <button key={a.id} onClick={() => onOpenAct(a)} className="mt-2 w-full text-left rounded-xl bg-surface-2 px-3 py-2 text-xs">
               <span className="font-medium text-ink">{a.source === 'manual' ? 'Logged' : a.source === 'strava' ? 'Strava' : 'Garmin'}{a.name && a.source !== 'manual' ? ` · ${a.name}` : ''}</span>
               <span className="block text-muted num mt-0.5">{actualLine(a)}</span>
+              {reports?.[a.id] && <span className="block mt-1.5 text-ink"><span className="text-brand">📊 </span>{reports[a.id].headline}</span>}
             </button>
           ))}
         </div>
@@ -130,6 +157,7 @@ export function LogSheet({ date, slot, planned, act, existingSets, lastKg, onClo
   return (
     <Sheet title={act ? (manual ? 'Logged session' : act.name || 'Garmin session') : 'Log a session'} onClose={onClose}
       footer={<div className="flex gap-2">{act?.source === 'manual' && <button className="btn btn-ghost text-bad" onClick={() => void remove()}><Icon name="trash" size={16} /></button>}<button className="btn btn-primary flex-1" disabled={busy} onClick={() => void save()}>{busy ? 'Saving…' : 'Save'}</button></div>}>
+      {act && <ReportView act={act} />}
       {planned && <p className="text-xs text-muted mb-3">Planned: {planned.title}</p>}
       {!manual && <p className="text-xs text-muted mb-3 num">{dmy(act!.date)} · {actualLine(act!)}. Times, distance and HR come from {act!.source === 'strava' ? 'Strava' : 'Garmin'} — add how it felt, and the kg for a gym session.</p>}
       <div className="space-y-3">
