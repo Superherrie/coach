@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+/* Coach — night navy and ember. Tokens are CSS variables so dark mode is a single override. */
+:root {
+  --bg: #f4f5f2; --surface: #ffffff; --surface-2: #eceee8; --ink: #14202b; --muted: #66717a; --line: #e1e4dd;
+  --brand: #1d3a5f; --brand-deep: #0f1f33; --ember: #e8642c; --gold: #d99a1e;
+  --good: #2f7d5b; --warn: #b7791f; --bad: #c4493a;
+  /* chart series — CVD/contrast-validated set (same as Kompas); fixed meaning: s1 run, s2 ride, s3 legs, s7 upper, s4 other */
+  --s1: #eb6834; --s2: #2a78d6; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300; --s7: #4a3aa7; --s8: #e34948; --s-other: #a9aca3;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d141b; --surface: #141e28; --surface-2: #1b2733; --ink: #eef1f3; --muted: #93a1ad; --line: #243341;
+    --brand: #7fa8d8; --brand-deep: #08101a; --ember: #f07a45; --gold: #ecc063;
+    --good: #6fce9f; --warn: #e6b45a; --bad: #f08877;
+    --s1: #d95926; --s2: #3987e5; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767; --s-other: #5d6b65;
+    color-scheme: dark;
+  }
+}
+
+@theme {
+  --color-bg: var(--bg); --color-surface: var(--surface); --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink); --color-muted: var(--muted); --color-line: var(--line);
+  --color-brand: var(--brand); --color-brand-deep: var(--brand-deep); --color-ember: var(--ember); --color-gold: var(--gold);
+  --color-good: var(--good); --color-warn: var(--warn); --color-bad: var(--bad);
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Barlow Condensed", "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+html, body, #root { height: 100%; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+.num { font-variant-numeric: tabular-nums; }
+.display { font-family: var(--font-display); font-weight: 600; letter-spacing: 0.01em; }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; border-radius: 999px; padding: .6rem 1.1rem; font-weight: 600; font-size: .9rem; transition: transform .08s, opacity .15s; }
+.btn:active { transform: scale(.97); }
+.btn:disabled { opacity: .5; }
+.btn-primary { background: var(--brand); color: var(--surface); }
+.btn-ember { background: var(--ember); color: #fff; }
+.btn-ghost { border: 1px solid var(--line); color: var(--ink); background: var(--surface); }
+.input { width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: .6rem .8rem; color: var(--ink); }
+.input:focus { outline: 2px solid var(--brand); outline-offset: 1px; }
+.chip { display: inline-flex; align-items: center; gap: .35rem; border-radius: 999px; padding: .2rem .6rem; font-size: .72rem; font-weight: 600; background: var(--surface-2); color: var(--muted); }
+.label { font-size: .72rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+
+/* ---- iPhone ---- */
+html { -webkit-text-size-adjust: 100%; }
+body { -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; }
+button, a, label, select, input[type=checkbox], input[type=radio] { touch-action: manipulation; }
+input[type=date], input[type=time], select { min-width: 0; max-width: 100%; }
+input[type=date] { -webkit-appearance: none; appearance: none; min-height: 2.75rem; text-align: left; }
+.no-scrollbar { scrollbar-width: none; } .no-scrollbar::-webkit-scrollbar { display: none; }
+@media (max-width: 767px) {
+  .card { border-radius: 16px; }
+  .btn { min-height: 2.75rem; }
+}
+@media (max-width: 640px) { input, select, textarea { font-size: 16px !important; } }
