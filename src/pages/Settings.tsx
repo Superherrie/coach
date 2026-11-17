@@ -53,7 +53,7 @@ export default function Settings() {
           <input className="input" type="password" autoComplete="off" placeholder={data.keySet ? 'API key saved — paste to replace' : 'API key'} value={key} onChange={e => setKey(e.target.value)} />
           <button className="btn btn-primary" disabled={busy || (!key && !data.keySet)} onClick={() => void connect()}>{busy ? 'Working…' : data.keySet && !key ? 'Re-sync 180 days' : 'Connect'}</button>
         </div>
-        <p className="text-[11px] text-muted mt-2">Strava is not used: its rules forbid passing your data to an AI. Sessions that reach intervals.icu only from Strava are skipped.</p>
+        <p className="text-[11px] text-muted mt-2">The six months before this were loaded once from Strava through the Strava connector; when Garmin delivers the same session, the Garmin copy replaces it. The daily sync doesn't use Strava, and sessions that reach intervals.icu only from Strava are skipped.</p>
         {data.log.length > 0 && <ul className="mt-3 text-xs text-muted space-y-0.5">{data.log.map(l => <li key={l.id} className={l.ok ? '' : 'text-bad'}>{stamp(l.created_at)} · {l.ok ? `${l.detail?.activities ?? 0} sessions, ${l.detail?.wellness ?? 0} wellness days` : l.detail?.error}</li>)}</ul>}
       </Card>
 

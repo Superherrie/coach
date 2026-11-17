@@ -123,7 +123,10 @@ Deno.serve(async (req) => {
     const missed = (planned ?? []).filter((p) => p.date < newest && p.sport !== "rest" && !linkedIds.has(p.id)).map((p) => p.id);
     if (missed.length) await admin.from("tr_planned").update({ status: "skipped" }).in("id", missed).eq("status", "planned");
 
-    const detail = { oldest, newest, wellness: wRows.length, activities: aRows.length, skipped_strava: skippedStrava, missed: missed.length };
+    // a session imported earlier from Strava history and now delivered by Garmin: keep the Garmin copy
+    const { data: deduped } = await admin.rpc("tr_dedupe_strava");
+
+    const detail = { oldest, newest, wellness: wRows.length, activities: aRows.length, skipped_strava: skippedStrava, missed: missed.length, replaced_strava: deduped ?? 0 };
     await admin.from("tr_sync_log").insert({ kind: byCron ? "cron" : "app", ok: true, detail });
     return json({ ok: true, ...detail });
   } catch (e) {

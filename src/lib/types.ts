@@ -12,7 +12,7 @@ export interface Planned {
 }
 
 export interface Activity {
-  id: string; source: 'icu' | 'manual'; date: string; start_local: string | null; slot: Slot | null; sport: Sport
+  id: string; source: 'icu' | 'manual' | 'strava'; date: string; start_local: string | null; slot: Slot | null; sport: Sport
   name: string | null; trainer: boolean | null; duration_s: number | null; distance_m: number | null; elev_m: number | null
   avg_hr: number | null; max_hr: number | null; avg_watts: number | null; np_watts: number | null; ftp: number | null
   avg_pace_s: number | null; gap_pace_s: number | null; load: number | null; intensity: number | null; ef: number | null
