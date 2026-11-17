@@ -85,24 +85,30 @@ function MealSheet({ day, meal, onClose, onSaved }: { day: string; meal?: Meal; 
     return { favs: (f.data ?? []) as Fav[], recent }
   }, [])
   const [tab, setTab] = useState<'fav' | 'recent'>('fav'); const [q, setQ] = useState('')
-  const [base, setBase] = useState<MealItem[]>(); const [scale, setScale] = useState(1); const [favId, setFavId] = useState<number>()
+  // base = one serving as read or picked; qty = how many (e.g. 5 coffees); size = portion of each (×½ … ×2)
+  const [base, setBase] = useState<MealItem[]>(); const [qty, setQty] = useState(1); const [size, setSize] = useState(1); const [favId, setFavId] = useState<number>()
+  const scale = qty * size
+  function apply(b: MealItem[], q: number, s: number) {
+    const m = q * s
+    setItems(b.map(i => ({ ...i, portion: m === 1 ? i.portion : `${q > 1 ? `${q} × ` : ''}${s !== 1 ? `${s === 0.5 ? '½' : s} × ` : ''}${i.portion}`, kcal: Math.round(i.kcal * m), protein_g: +(i.protein_g * m).toFixed(1), carbs_g: +(i.carbs_g * m).toFixed(1), fat_g: +(i.fat_g * m).toFixed(1) })))
+  }
   function choose(f: Fav) {
-    setBase(f.items); setScale(1); setItems(f.items); setTitle(f.name); setKind(f.meal); setSource('manual'); setConf(null); setCheck(null)
+    setBase(f.items); setQty(1); setSize(1); setItems(f.items); setTitle(f.name); setKind(f.meal); setSource('manual'); setConf(null); setCheck(null)
     setFavId(f.id > 0 ? f.id : undefined)
   }
-  function rescale(s: number) {
-    if (!base) return
-    setScale(s)
-    setItems(base.map(i => ({ ...i, portion: s === 1 ? i.portion : `${s}× ${i.portion}`, kcal: Math.round(i.kcal * s), protein_g: +(i.protein_g * s).toFixed(1), carbs_g: +(i.carbs_g * s).toFixed(1), fat_g: +(i.fat_g * s).toFixed(1) })))
-  }
+  const setQ1 = (q: number) => { const v = Math.max(1, Math.min(20, q)); setQty(v); if (base) apply(base, v, size) }
+  const setS1 = (s: number) => { setSize(s); if (base) apply(base, qty, s) }
+  // editing an item by hand makes the edited list the new single serving
+  const editItems = (f: (x: MealItem[]) => MealItem[]) => setItems(x => { const n = f(x); if (base) setBase(n.map(i => ({ ...i, kcal: i.kcal / scale, protein_g: i.protein_g / scale, carbs_g: i.carbs_g / scale, fat_g: i.fat_g / scale }))); return n })
   const favNames = new Set((pick?.favs ?? []).map(f => f.name.trim().toLowerCase()))
   const isFav = !!favId || favNames.has(title.trim().toLowerCase())
   async function star() {
     if (isFav || !items.length) return
-    const t = (k: keyof MealItem) => Math.round(items.reduce((s, i) => s + (Number(i[k]) || 0), 0))
-    const unscaled = base && scale !== 1 ? base : items
-    await supabase.from('tr_meal_favs').insert({ name: title || items.map(i => i.name).join(', '), meal: kind, items: unscaled,
-      kcal: base && scale !== 1 ? Math.round(t('kcal') / scale) : t('kcal'), protein_g: t('protein_g'), carbs_g: t('carbs_g'), fat_g: t('fat_g') })
+    // a favourite is always ONE serving, whatever quantity is being logged now
+    const one = (base ?? items).map(i => ({ ...i, kcal: Math.round(i.kcal), protein_g: +i.protein_g.toFixed(1), carbs_g: +i.carbs_g.toFixed(1), fat_g: +i.fat_g.toFixed(1) }))
+    const t = (k: keyof MealItem) => Math.round(one.reduce((s, i) => s + (Number(i[k]) || 0), 0))
+    await supabase.from('tr_meal_favs').insert({ name: title || items.map(i => i.name).join(', '), meal: kind, items: one,
+      kcal: t('kcal'), protein_g: t('protein_g'), carbs_g: t('carbs_g'), fat_g: t('fat_g') })
     void reloadPick()
   }
   async function unstar(f: Fav) { if (confirm(`Remove "${f.name}" from favourites?`)) { await supabase.from('tr_meal_favs').delete().eq('id', f.id); void reloadPick() } }
@@ -138,20 +144,22 @@ function MealSheet({ day, meal, onClose, onSaved }: { day: string; meal?: Meal; 
     setBusy('read'); setErr(undefined)
     try {
       const r = await callFn<{ draft: { title: string; items: MealItem[]; confidence: string; check: string | null; source: string } }>('tr-meal', { image: photo?.b64, text: text || undefined, meal: kind })
+      setBase(r.draft.items); setQty(1); setSize(1)
       setItems(r.draft.items); setTitle(r.draft.title); setConf(r.draft.confidence); setCheck(r.draft.check); setSource(r.draft.source)
     } catch (e) { setErr((e as Error).message) } finally { setBusy(undefined) }
   }
   const tot = (k: keyof MealItem) => Math.round(items.reduce((s, i) => s + (Number(i[k]) || 0), 0))
   async function save() {
     setBusy('save')
-    const row = { date: meal?.date ?? day, meal: kind, description: title || items.map(i => i.name).join(', '), items, kcal: tot('kcal'), protein_g: tot('protein_g'), carbs_g: tot('carbs_g'), fat_g: tot('fat_g'), source, confidence: conf,
+    const name = title || items.map(i => i.name).join(', ')
+    const row = { date: meal?.date ?? day, meal: kind, description: qty > 1 && !/^\d+\s*×/.test(name) ? `${qty} × ${name}` : name, items, kcal: tot('kcal'), protein_g: tot('protein_g'), carbs_g: tot('carbs_g'), fat_g: tot('fat_g'), source, confidence: conf,
       eaten_at: meal?.eaten_at ?? (day === today() ? new Date().toTimeString().slice(0, 5) : null) }
     const { error } = meal ? await supabase.from('tr_meals').update(row).eq('id', meal.id) : await supabase.from('tr_meals').insert(row)
     if (!error && favId) { const f = pick?.favs.find(x => x.id === favId); await supabase.from('tr_meal_favs').update({ uses: (f?.uses ?? 0) + 1, last_used: new Date().toISOString() }).eq('id', favId) }
     setBusy(undefined); if (error) setErr(error.message); else onSaved()
   }
   async function remove() { if (meal && confirm('Delete this meal?')) { await supabase.from('tr_meals').delete().eq('id', meal.id); onSaved() } }
-  const upd = (i: number, k: keyof MealItem, v: string) => setItems(x => x.map((it, j) => j === i ? { ...it, [k]: k === 'name' || k === 'portion' ? v : Number(v) || 0 } : it))
+  const upd = (i: number, k: keyof MealItem, v: string) => editItems(x => x.map((it, j) => j === i ? { ...it, [k]: k === 'name' || k === 'portion' ? v : Number(v) || 0 } : it))
 
   return (
     <Sheet title={meal ? 'Meal' : 'Add a meal'} onClose={onClose}
@@ -197,10 +205,19 @@ function MealSheet({ day, meal, onClose, onSaved }: { day: string; meal?: Meal; 
             <button className={`btn btn-ghost !px-3 ${isFav ? 'text-ember' : ''}`} onClick={() => void star()} aria-label={isFav ? 'Favourite' : 'Save as favourite'} title={isFav ? 'In favourites' : 'Save as favourite'}>{isFav ? '★' : '☆'}</button>
           </div>
           {base && (
-            <div className="flex items-center gap-1.5">
-              <span className="label mr-1">Portion</span>
-              {[0.5, 1, 1.5, 2].map(s => <button key={s} onClick={() => rescale(s)} className={`chip !py-1.5 !px-3 ${scale === s ? '!bg-brand !text-surface' : ''}`}>×{s === 0.5 ? '½' : s === 1.5 ? '1½' : s}</button>)}
-              <button className="ml-auto text-xs text-muted underline" onClick={() => { setBase(undefined); setItems([]); setTitle(''); setFavId(undefined) }}>Pick another</button>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="label w-16">How many</span>
+                <button className="btn btn-ghost !px-3 !py-1" onClick={() => setQ1(qty - 1)} disabled={qty <= 1} aria-label="One less">−</button>
+                <span className="display text-2xl num w-8 text-center">{qty}</span>
+                <button className="btn btn-ghost !px-3 !py-1" onClick={() => setQ1(qty + 1)} aria-label="One more">+</button>
+                <div className="flex gap-1 ml-1">{[2, 3, 5].map(n => <button key={n} onClick={() => setQ1(n)} className={`chip !py-1 !px-2.5 ${qty === n ? '!bg-brand !text-surface' : ''}`}>{n}</button>)}</div>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="label w-16">Size</span>
+                {[0.5, 1, 1.5, 2].map(s => <button key={s} onClick={() => setS1(s)} className={`chip !py-1.5 !px-3 ${size === s ? '!bg-brand !text-surface' : ''}`}>×{s === 0.5 ? '½' : s === 1.5 ? '1½' : s}</button>)}
+                {!meal && <button className="ml-auto text-xs text-muted underline" onClick={() => { setBase(undefined); setItems([]); setTitle(''); setFavId(undefined); setQty(1); setSize(1) }}>Pick another</button>}
+              </div>
             </div>
           )}
           {check && <p className="text-xs rounded-xl bg-warn/12 text-warn px-3 py-2">{check}</p>}
@@ -210,11 +227,11 @@ function MealSheet({ day, meal, onClose, onSaved }: { day: string; meal?: Meal; 
                 <div className="min-w-0"><input className="input !py-1 text-sm" value={it.name} onChange={e => upd(i, 'name', e.target.value)} /><input className="input !py-0.5 !text-xs text-muted mt-0.5 !border-transparent" value={it.portion} onChange={e => upd(i, 'portion', e.target.value)} /></div>
                 <span className="text-[11px] text-muted num text-right">P{Math.round(it.protein_g)} C{Math.round(it.carbs_g)} F{Math.round(it.fat_g)}</span>
                 <input className="input !py-1 text-sm num" inputMode="numeric" value={it.kcal} onChange={e => upd(i, 'kcal', e.target.value)} />
-                <button className="text-muted" onClick={() => setItems(x => x.filter((_, j) => j !== i))} aria-label="Remove item"><Icon name="close" size={15} /></button>
+                <button className="text-muted" onClick={() => editItems(x => x.filter((_, j) => j !== i))} aria-label="Remove item"><Icon name="close" size={15} /></button>
               </div>
             ))}
           </div>
-          <button className="btn btn-ghost !py-1.5 text-sm" onClick={() => setItems(x => [...x, { name: '', portion: '', kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0 }])}><Icon name="plus" size={14} />Add item</button>
+          <button className="btn btn-ghost !py-1.5 text-sm" onClick={() => editItems(x => [...x, { name: '', portion: '', kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0 }])}><Icon name="plus" size={14} />Add item</button>
           <p className="text-sm num">Total <b>{tot('kcal')} kcal</b> · protein {tot('protein_g')} g · carbs {tot('carbs_g')} g · fat {tot('fat_g')} g{conf ? <span className="text-muted"> · {conf} confidence</span> : null}</p>
         </>}
         {!meal && !items.length && <button className="text-xs text-muted underline" onClick={() => setItems([{ name: 'Quick add', portion: '', kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0 }])}>Just enter calories</button>}
