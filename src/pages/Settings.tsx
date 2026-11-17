@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import Icon from '../components/Icon'
 import { Card } from '../components/ui'
+import ApiSpend from '../components/ApiSpend'
 import { callFn, getSettings, useLoad } from '../lib/data'
 import { stamp } from '../lib/format'
 import { supabase } from '../lib/supabase'
@@ -79,6 +80,8 @@ export default function Settings() {
           </select></label>
         <p className="text-[11px] text-muted mt-2">Runs once a day at 05:25 after the Garmin sync, and whenever you ask.</p>
       </Card>
+
+      <ApiSpend />
 
       <div className="flex gap-2">
         <button className="btn btn-primary flex-1" disabled={busy} onClick={() => void save()}>Save settings</button>
