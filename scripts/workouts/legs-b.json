@@ -1,0 +1,23 @@
+{
+  "id": "legs-b",
+  "name": "Legs B — single leg & eccentric",
+  "category": "strength",
+  "summary": "Single-leg strength and slow eccentrics — the Down-Run-specific session. Same session every time; weights climb by double progression as each exercise reaches the top of its rep range on every set.",
+  "duration_min": 55,
+  "equipment": "Dumbbells, bench, trap (hex) bar, a 20–30 cm box or step.",
+  "when_to_use": "Second leg session of the week, on a quality-run day at least 6 hours after the run. Not the day before a long run.",
+  "exercises": [
+    { "key": "bulgarian-split-squat", "name": "Bulgarian split squat", "type": "strength", "sets": 3, "rep_min": 6, "rep_max": 8, "per_side": true, "increment_kg": 2, "rest_s": 90, "load": "dumbbells (kg each hand)",
+      "cues": ["Rear foot on a bench, front foot far enough forward that the knee stays over the mid-foot", "Lower straight down for 2–3 s, torso slightly forward", "Drive through the front heel; finish all reps on one leg, then switch"],
+      "why": "Single-leg strength exposes and fixes left/right differences — every running stride is single-leg." },
+    { "key": "trap-bar-deadlift", "name": "Trap-bar deadlift", "type": "strength", "sets": 3, "rep_min": 4, "rep_max": 6, "increment_kg": 5, "rest_s": 150, "load": "trap bar",
+      "cues": ["Warm up with 2–3 lighter sets", "Stand in the centre, hips down, chest up, grip the handles", "Push the floor away; hips and shoulders rise together", "Lower under control; reset each rep"],
+      "why": "Heavy whole-leg strength with less back stress than a straight bar." },
+    { "key": "eccentric-step-down", "name": "Eccentric step-down", "type": "strength", "sets": 3, "rep_min": 8, "rep_max": 10, "per_side": true, "increment_kg": 2, "rest_s": 60, "load": "bodyweight, then dumbbell",
+      "cues": ["Stand on a box on one leg; lower the other heel to the floor over 3–4 s", "Knee tracks over the second toe, hips level", "Tap and come back up; start at bodyweight, add a dumbbell when easy"],
+      "why": "Slow lowering under load is exactly what downhill running does to the quads — this is the most Comrades-specific lift." },
+    { "key": "calf-raise-straight", "name": "Calf raise, straight knee", "type": "strength", "sets": 3, "rep_min": 8, "rep_max": 12, "increment_kg": 2.5, "rest_s": 60, "load": "dumbbells or machine",
+      "cues": ["Full stretch at the bottom, high rise, 3 s down"],
+      "why": "Calf and ankle strength for the long run and the ankle niggle." }
+  ]
+}

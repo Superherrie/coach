@@ -9,5 +9,12 @@
   {"key": "pigeon", "name": "Pigeon stretch (or figure-4 stretch)", "video_id": "kdqyCSW1AN0", "title": "Supine Pigeon Stretch or Supine Figure Four - A Piriformis and Hip External Rotator Stretch", "channel": "Kirsten McCormick", "verified": true},
   {"key": "clamshell", "name": "Clamshell (banded or bodyweight)", "video_id": "hQupQ9mJZFw", "title": "How to Guide: Banded Clamshell", "channel": "BridgeAthletic", "verified": true},
   {"key": "side-lying-abduction", "name": "Side-lying hip abduction", "video_id": "HePuOF1v9-0", "title": "Exercise Tutorial: Side Lying Hip Abduction", "channel": "Travis Tarrant", "verified": true},
-  {"key": "deep-squat-hold", "name": "Deep squat hold / goblet squat pry", "video_id": "qRzwMqVzdjw", "title": "Prying Goblet Squat  - Viking Strength Systems", "channel": "Viking Strength Systems", "verified": true}
+  {"key": "deep-squat-hold", "name": "Deep squat hold / goblet squat pry", "video_id": "qRzwMqVzdjw", "title": "Prying Goblet Squat  - Viking Strength Systems", "channel": "Viking Strength Systems", "verified": true},
+  {"key": "back-squat", "name": "Barbell back squat", "video_id": "-bJIpOq-LWk", "title": "How to do a Barbell Back Squat", "channel": "National Academy of Sports Medicine (NASM)", "verified": true},
+  {"key": "romanian-deadlift", "name": "Romanian deadlift (barbell or dumbbell)", "video_id": "k6cUaJasD5U", "title": "How to do the RDL (Romanian Deadlift) with Mark Rippetoe", "channel": "Starting Strength", "verified": true},
+  {"key": "calf-raise-straight", "name": "Standing calf raise (straight knee, heavy)", "video_id": "k8ipHzKeAkQ", "title": "Exercises with an Athletic Trainer: Standing Calf Raises", "channel": "Children's Hospital Colorado", "verified": true},
+  {"key": "calf-raise-bent", "name": "Seated / bent-knee calf raise (soleus)", "video_id": "iaxCtsXxWqw", "title": "Seated Soleus Calf Raise", "channel": "Sports Rehab Expert", "verified": true},
+  {"key": "bulgarian-split-squat", "name": "Bulgarian split squat (dumbbells)", "video_id": "iwV9rTHKrOg", "title": "How to Dumbbell Bulgarian Split Squat in 45 Seconds", "channel": "Total Body Training", "verified": true},
+  {"key": "eccentric-step-down", "name": "Eccentric step-down (slow lowering off a box)", "video_id": "FAZpljV-n9w", "title": "Eccentric step down - Lower Body Exercise", "channel": "Commons Clinic", "verified": true},
+  {"key": "trap-bar-deadlift", "name": "Trap bar (hex bar) deadlift", "video_id": "dfYIApfWS5o", "title": "Trap Bar Deadlift (Exercise Library)", "channel": "Horton Barbell", "verified": true}
 ]

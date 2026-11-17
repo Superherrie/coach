@@ -5,11 +5,14 @@ import { Card, Empty } from '../components/ui'
 import { useLoad } from '../lib/data'
 import { dmy, today } from '../lib/format'
 import { supabase } from '../lib/supabase'
+import { NextWeights, StrengthPlayer } from '../components/Strength'
 
 export interface WEx { key: string; name: string; sets?: number; reps?: number; seconds?: number; per_side?: boolean; rest_s?: number; cues: string[]; why?: string; video_id: string | null; video_title: string | null; video_channel: string | null }
 export interface Workout { id: string; name: string; category: string; summary: string | null; duration_min: number | null; equipment: string | null; when_to_use: string | null; exercises: WEx[] }
 
-const dose = (e: WEx) => `${e.sets && e.sets > 1 ? `${e.sets} × ` : ''}${e.reps ? `${e.reps} reps` : `${e.seconds} s`}${e.per_side ? ' each side' : ''}`
+const dose = (e: WEx & { rep_min?: number; rep_max?: number }) => e.rep_min
+  ? `${e.sets ?? 3} × ${e.rep_min}–${e.rep_max} reps${e.per_side ? ' each leg' : ''}`
+  : `${e.sets && e.sets > 1 ? `${e.sets} × ` : ''}${e.reps ? `${e.reps} reps` : `${e.seconds} s`}${e.per_side ? ' each side' : ''}`
 
 /** /workouts — the library; /workouts/:id — one workout with its exercises and the guided player */
 export default function Workouts() {
@@ -29,7 +32,7 @@ export default function Workouts() {
       <h1 className="display text-3xl leading-none">Workouts</h1>
       {data.list.map(x => (
         <Link key={x.id} to={`/workouts/${x.id}`} className="card p-4 flex items-center gap-3">
-          <span className="grid place-items-center w-11 h-11 rounded-xl text-white shrink-0" style={{ background: 'var(--s4)' }}><Icon name="stretch" size={24} /></span>
+          <span className="grid place-items-center w-11 h-11 rounded-xl text-white shrink-0" style={{ background: x.category === 'strength' ? 'var(--s3)' : 'var(--s4)' }}><Icon name={x.category === 'strength' ? 'dumbbell' : 'stretch'} size={24} /></span>
           <span className="flex-1 min-w-0">
             <span className="block font-semibold">{x.name}</span>
             <span className="block text-xs text-muted">{x.duration_min} min · {x.exercises.length} exercises · {x.category}{data.log.find(l => l.workout_id === x.id) ? ` · last done ${dmy(data.log.find(l => l.workout_id === x.id)!.date, { year: false })}` : ''}</span>
@@ -63,7 +66,8 @@ function Video({ e }: { e: WEx }) {
 
 function WorkoutDetail({ w, last }: { w: Workout; last?: string }) {
   const [play, setPlay] = useState(false)
-  if (play) return <Player w={w} onExit={() => setPlay(false)} />
+  const strength = w.category === 'strength'
+  if (play) return strength ? <StrengthPlayer w={w} onExit={() => setPlay(false)} /> : <Player w={w} onExit={() => setPlay(false)} />
   return (
     <div className="space-y-4 py-3">
       <Link to="/workouts" className="text-sm text-muted flex items-center gap-1"><Icon name="left" size={16} />Workouts</Link>
@@ -71,7 +75,8 @@ function WorkoutDetail({ w, last }: { w: Workout; last?: string }) {
         <h1 className="display text-3xl leading-none">{w.name}</h1>
         <p className="text-xs text-muted mt-1">{w.duration_min} min · {w.exercises.length} exercises{last ? ` · last done ${dmy(last)}` : ''}</p>
       </div>
-      <button className="btn btn-ember w-full !py-3 text-base" onClick={() => setPlay(true)}>▶ Start guided session</button>
+      <button className="btn btn-ember w-full !py-3 text-base" onClick={() => setPlay(true)}>{strength ? '▶ Start session (log sets)' : '▶ Start guided session'}</button>
+      {strength && <NextWeights w={w} />}
       {w.summary && <p className="text-sm">{w.summary}</p>}
       <div className="text-xs text-muted space-y-0.5">{w.when_to_use && <p><b className="text-ink">When:</b> {w.when_to_use}</p>}{w.equipment && <p><b className="text-ink">Kit:</b> {w.equipment}</p>}</div>
       {w.exercises.map((e, i) => (

@@ -68,7 +68,7 @@ function legs(phase, variant, light = false) {
   const B = [{ name: 'Bulgarian split squat', sets, reps, kg: null }, { name: 'Eccentric step-down', sets: 3, reps: 8, kg: null }, { name: 'Trap-bar deadlift', sets, reps, kg: null }, { name: 'Calf raise, straight knee', sets: 3, reps: 10, kg: null }];
   const title = light ? `Legs ${variant} (technique)` : `Legs ${variant} (heavy)`;
   const desc = (light ? 'Technique and moderate loads only — nothing that leaves you sore for the next run.' : `Heavy and low-rep: pick a load you could lift 2 more times than prescribed.${ecc}${plyo}`) + ' At least 6 hours after the morning run. Log the kg so the strength trend works.';
-  return S('gym_legs', title, desc, 55, light ? 'easy' : 'moderate', { targets: { exercises: variant === 'A' ? A : B } });
+  return S('gym_legs', title, desc, 55, light ? 'easy' : 'moderate', { targets: { workout_id: variant === 'A' ? 'legs-a' : 'legs-b', exercises: variant === 'A' ? A : B } });
 }
 function quality(phase, kind, km) {
   const min = Math.round(km * Q_PACE);

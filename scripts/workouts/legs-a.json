@@ -1,0 +1,23 @@
+{
+  "id": "legs-a",
+  "name": "Legs A — squat & hinge",
+  "category": "strength",
+  "summary": "Heavy, low-rep leg strength for downhill durability (the quads failed in the last 15 km of 2022). Same session every time; the weights climb by double progression: hit the top of the rep range on every set and the app adds weight next time.",
+  "duration_min": 55,
+  "equipment": "Barbell and rack (or Smith machine), dumbbells, step or plate for calves.",
+  "when_to_use": "Quality-run days, at least 6 hours after the run. Never the day before a long run or within 5 days of a race that matters.",
+  "exercises": [
+    { "key": "back-squat", "name": "Back squat", "type": "strength", "sets": 3, "rep_min": 4, "rep_max": 6, "increment_kg": 2.5, "rest_s": 150, "load": "barbell",
+      "cues": ["Warm up: empty bar ×10, then 2–3 lighter sets of 3–5", "Brace, sit between the hips, knees track over toes", "Depth you can control with a neutral back; drive up through the whole foot", "Stop 1–2 reps before failure — no grinding"],
+      "why": "Quad and glute strength — the engine for the long Down Run descents." },
+    { "key": "romanian-deadlift", "name": "Romanian deadlift", "type": "strength", "sets": 3, "rep_min": 6, "rep_max": 8, "increment_kg": 2.5, "rest_s": 120, "load": "barbell",
+      "cues": ["Soft knees, push the hips back, bar slides down the thighs", "Stop when the hamstrings are tight — usually just below the knee", "Flat back throughout; squeeze glutes to stand"],
+      "why": "Hamstrings and glutes under load — protects against late-race hamstring cramps and supports the hips." },
+    { "key": "calf-raise-straight", "name": "Calf raise, straight knee", "type": "strength", "sets": 3, "rep_min": 8, "rep_max": 12, "increment_kg": 2.5, "rest_s": 60, "load": "dumbbells or machine",
+      "cues": ["Balls of the feet on a step, full stretch at the bottom", "Rise high, pause 1 s, lower over 3 s", "Knees straight but not locked"],
+      "why": "Gastrocnemius strength — and the ankle stability your posterior tibial area needs." },
+    { "key": "calf-raise-bent", "name": "Calf raise, bent knee", "type": "strength", "sets": 3, "rep_min": 10, "rep_max": 15, "increment_kg": 2.5, "rest_s": 60, "load": "seated machine or dumbbell on knee",
+      "cues": ["Knees at about 90°, weight on the thighs", "Full range, slow down, pause at the top"],
+      "why": "Soleus — the calf muscle that carries the most load per stride in long runs." }
+  ]
+}
