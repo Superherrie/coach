@@ -8,6 +8,7 @@ import { kcalOut, type Body } from '../lib/calories'
 import type { Activity } from '../lib/types'
 
 export interface MealItem { name: string; portion: string; kcal: number; protein_g: number; carbs_g: number; fat_g: number }
+interface Fav { id: number; name: string; meal: string; items: MealItem[]; kcal: number; protein_g: number | null; carbs_g: number | null; fat_g: number | null; uses: number }
 export interface Meal { id: number; date: string; eaten_at: string | null; meal: string; description: string; items: MealItem[]; kcal: number; protein_g: number | null; carbs_g: number | null; fat_g: number | null; source: string; confidence: string | null }
 const MEALS = ['breakfast', 'lunch', 'dinner', 'snack', 'drink'] as const
 const guessMeal = () => { const h = new Date().getHours(); return h < 10 ? 'breakfast' : h < 15 ? 'lunch' : h < 17 ? 'snack' : 'dinner' }
@@ -69,6 +70,43 @@ function MealSheet({ day, meal, onClose, onSaved }: { day: string; meal?: Meal; 
   const [source, setSource] = useState(meal?.source ?? 'text')
   const [busy, setBusy] = useState<string>(); const [err, setErr] = useState<string>()
   const [listening, setListening] = useState(false)
+  // quick pick: favourites (starred) and recent meals; a picked dish can be scaled ×½…×2
+  const { data: pick, reload: reloadPick } = useLoad(async () => {
+    const [f, r] = await Promise.all([
+      supabase.from('tr_meal_favs').select('*').order('uses', { ascending: false }).order('name'),
+      supabase.from('tr_meals').select('id,meal,description,items,kcal,protein_g,carbs_g,fat_g,created_at').order('created_at', { ascending: false }).limit(150),
+    ])
+    const seen = new Set<string>(); const recent: Fav[] = []
+    for (const m of (r.data ?? []) as (Meal & { created_at: string })[]) {
+      const k = m.description.trim().toLowerCase(); if (seen.has(k)) continue; seen.add(k)
+      recent.push({ id: -m.id, name: m.description, meal: m.meal, items: m.items, kcal: m.kcal, protein_g: m.protein_g, carbs_g: m.carbs_g, fat_g: m.fat_g, uses: 0 })
+      if (recent.length >= 40) break
+    }
+    return { favs: (f.data ?? []) as Fav[], recent }
+  }, [])
+  const [tab, setTab] = useState<'fav' | 'recent'>('fav'); const [q, setQ] = useState('')
+  const [base, setBase] = useState<MealItem[]>(); const [scale, setScale] = useState(1); const [favId, setFavId] = useState<number>()
+  function choose(f: Fav) {
+    setBase(f.items); setScale(1); setItems(f.items); setTitle(f.name); setKind(f.meal); setSource('manual'); setConf(null); setCheck(null)
+    setFavId(f.id > 0 ? f.id : undefined)
+  }
+  function rescale(s: number) {
+    if (!base) return
+    setScale(s)
+    setItems(base.map(i => ({ ...i, portion: s === 1 ? i.portion : `${s}× ${i.portion}`, kcal: Math.round(i.kcal * s), protein_g: +(i.protein_g * s).toFixed(1), carbs_g: +(i.carbs_g * s).toFixed(1), fat_g: +(i.fat_g * s).toFixed(1) })))
+  }
+  const favNames = new Set((pick?.favs ?? []).map(f => f.name.trim().toLowerCase()))
+  const isFav = !!favId || favNames.has(title.trim().toLowerCase())
+  async function star() {
+    if (isFav || !items.length) return
+    const t = (k: keyof MealItem) => Math.round(items.reduce((s, i) => s + (Number(i[k]) || 0), 0))
+    const unscaled = base && scale !== 1 ? base : items
+    await supabase.from('tr_meal_favs').insert({ name: title || items.map(i => i.name).join(', '), meal: kind, items: unscaled,
+      kcal: base && scale !== 1 ? Math.round(t('kcal') / scale) : t('kcal'), protein_g: t('protein_g'), carbs_g: t('carbs_g'), fat_g: t('fat_g') })
+    void reloadPick()
+  }
+  async function unstar(f: Fav) { if (confirm(`Remove "${f.name}" from favourites?`)) { await supabase.from('tr_meal_favs').delete().eq('id', f.id); void reloadPick() } }
+  const list = (tab === 'fav' ? pick?.favs : pick?.recent)?.filter(f => !q || f.name.toLowerCase().includes(q.toLowerCase())) ?? []
   const fileRef = useRef<HTMLInputElement>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
@@ -94,6 +132,7 @@ function MealSheet({ day, meal, onClose, onSaved }: { day: string; meal?: Meal; 
     const row = { date: meal?.date ?? day, meal: kind, description: title || items.map(i => i.name).join(', '), items, kcal: tot('kcal'), protein_g: tot('protein_g'), carbs_g: tot('carbs_g'), fat_g: tot('fat_g'), source, confidence: conf,
       eaten_at: meal?.eaten_at ?? (day === today() ? new Date().toTimeString().slice(0, 5) : null) }
     const { error } = meal ? await supabase.from('tr_meals').update(row).eq('id', meal.id) : await supabase.from('tr_meals').insert(row)
+    if (!error && favId) { const f = pick?.favs.find(x => x.id === favId); await supabase.from('tr_meal_favs').update({ uses: (f?.uses ?? 0) + 1, last_used: new Date().toISOString() }).eq('id', favId) }
     setBusy(undefined); if (error) setErr(error.message); else onSaved()
   }
   async function remove() { if (meal && confirm('Delete this meal?')) { await supabase.from('tr_meals').delete().eq('id', meal.id); onSaved() } }
@@ -105,7 +144,27 @@ function MealSheet({ day, meal, onClose, onSaved }: { day: string; meal?: Meal; 
         <button className="btn btn-primary flex-1" disabled={!!busy} onClick={() => void save()}>{busy === 'save' ? 'Saving…' : `Save · ${tot('kcal')} kcal`}</button></div> : undefined}>
       <div className="space-y-3">
         <div className="flex flex-wrap gap-1.5">{MEALS.map(m => <button key={m} onClick={() => setKind(m)} className={`chip !py-1.5 !px-3 capitalize ${kind === m ? '!bg-brand !text-surface' : ''}`}>{m}</button>)}</div>
-        {!meal && <>
+        {!meal && !items.length && (
+          <div className="rounded-2xl bg-surface-2 p-3">
+            <div className="flex items-center gap-2 mb-2">
+              {(['fav', 'recent'] as const).map(k => <button key={k} onClick={() => setTab(k)} className={`chip !py-1.5 !px-3 ${tab === k ? '!bg-brand !text-surface' : '!bg-surface'}`}>{k === 'fav' ? `★ Favourites${pick?.favs.length ? ` (${pick.favs.length})` : ''}` : 'Recent'}</button>)}
+              <input className="input !py-1 text-sm flex-1 min-w-0" value={q} onChange={e => setQ(e.target.value)} placeholder="Search" />
+            </div>
+            <ul className="max-h-52 overflow-y-auto divide-y divide-line">
+              {list.map(f => (
+                <li key={f.id} className="flex items-center gap-2">
+                  <button className="flex-1 min-w-0 flex items-center gap-2 py-2 text-left" onClick={() => choose(f)}>
+                    <span className="flex-1 min-w-0 text-sm truncate">{f.name}</span>
+                    <span className="num text-sm text-muted">{num(f.kcal)}</span>
+                  </button>
+                  {tab === 'fav' && <button className="text-ember px-1" aria-label="Remove favourite" onClick={() => void unstar(f)}>★</button>}
+                </li>
+              ))}
+            </ul>
+            {!list.length && <p className="text-xs text-muted py-2">{tab === 'fav' ? 'No favourites yet — after reading a meal, tap ☆ to keep it here.' : 'Meals you log show up here.'}</p>}
+          </div>
+        )}
+        {!meal && !base && <>
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={async e => { const f = e.target.files?.[0]; if (f) setPhoto({ b64: await shrink(f), url: URL.createObjectURL(f) }) }} />
           {photo ? <div className="relative"><img src={photo.url} alt="Meal" className="w-full max-h-56 object-cover rounded-xl" /><button className="absolute top-2 right-2 chip !bg-black/60 !text-white" onClick={() => setPhoto(undefined)}><Icon name="close" size={12} />Remove</button></div>
             : <button className="btn btn-ghost w-full" onClick={() => fileRef.current?.click()}><Icon name="camera" size={18} />Take or choose a photo</button>}
@@ -118,7 +177,17 @@ function MealSheet({ day, meal, onClose, onSaved }: { day: string; meal?: Meal; 
         </>}
         {err && <p className="text-sm text-bad">{err}</p>}
         {items.length > 0 && <>
-          <input className="input font-medium" value={title} onChange={e => setTitle(e.target.value)} />
+          <div className="flex gap-2">
+            <input className="input font-medium flex-1 min-w-0" value={title} onChange={e => setTitle(e.target.value)} />
+            <button className={`btn btn-ghost !px-3 ${isFav ? 'text-ember' : ''}`} onClick={() => void star()} aria-label={isFav ? 'Favourite' : 'Save as favourite'} title={isFav ? 'In favourites' : 'Save as favourite'}>{isFav ? '★' : '☆'}</button>
+          </div>
+          {base && (
+            <div className="flex items-center gap-1.5">
+              <span className="label mr-1">Portion</span>
+              {[0.5, 1, 1.5, 2].map(s => <button key={s} onClick={() => rescale(s)} className={`chip !py-1.5 !px-3 ${scale === s ? '!bg-brand !text-surface' : ''}`}>×{s === 0.5 ? '½' : s === 1.5 ? '1½' : s}</button>)}
+              <button className="ml-auto text-xs text-muted underline" onClick={() => { setBase(undefined); setItems([]); setTitle(''); setFavId(undefined) }}>Pick another</button>
+            </div>
+          )}
           {check && <p className="text-xs rounded-xl bg-warn/12 text-warn px-3 py-2">{check}</p>}
           <div className="space-y-1.5">
             {items.map((it, i) => (
