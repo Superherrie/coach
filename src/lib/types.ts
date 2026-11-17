@@ -33,6 +33,7 @@ export interface Settings {
   id: 1; icu_athlete_id: string | null; icu_connected_at: string | null; height_cm: number | null; ftp_w: number | null; max_hr: number | null
   run_max_hr: number | null; easy_run_hr_cap: number | null; goal_weight_kg: number | null; coach_auto: boolean; coach_model: string; notes: string | null
   birth_year: number | null; activity_factor: number | null; kcal_deficit: number | null
+  sex: string | null; coach_profile: string | null; user_id: string
 }
 
 export interface Phase { id: number; name: string; start_date: string; end_date: string; focus: string | null; run_km_from: number | null; run_km_to: number | null; long_run_from: number | null; long_run_to: number | null; leg_sessions: string | null; key_sessions: string | null; strength_emphasis: string | null }

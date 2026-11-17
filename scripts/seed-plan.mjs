@@ -189,6 +189,7 @@ console.log(`${plan.length} sessions`);
 
 if (APPLY) {
   const db = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+  const owner = (await db.rpc('tr_owner')).data;   // this plan is Herman's
   let r = await db.from('tr_phases').delete().gte('id', 0); if (r.error) throw r.error;
   r = await db.from('tr_phases').insert(PHASES); if (r.error) throw r.error;
   r = await db.from('tr_events').delete().gte('id', 0); if (r.error) throw r.error;
@@ -197,6 +198,6 @@ if (APPLY) {
   const keep = new Set((kept ?? []).map(k => k.date + k.slot));
   r = await db.from('tr_planned').delete().gte('date', '2026-11-17').eq('source', 'seed'); if (r.error) throw r.error;
   const rows = plan.filter(p => !keep.has(p.date + p.slot));
-  for (let i = 0; i < rows.length; i += 200) { r = await db.from('tr_planned').upsert(rows.slice(i, i + 200), { onConflict: 'date,slot' }); if (r.error) throw r.error; }
+  for (let i = 0; i < rows.length; i += 200) { r = await db.from('tr_planned').upsert(rows.slice(i, i + 200).map(r => ({ ...r, user_id: owner })), { onConflict: 'user_id,date,slot' }); if (r.error) throw r.error; }
   console.log(`applied: ${PHASES.length} phases, ${EVENTS.length} events, ${rows.length} sessions (${keep.size} coach/manual sessions kept)`);
 }

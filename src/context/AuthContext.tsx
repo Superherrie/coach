@@ -2,9 +2,9 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 
-interface Member { user_id: string; display_name: string; role: string }
-interface AuthState { session: Session | null; member: Member | null; loading: boolean; signOut: () => Promise<void> }
-const AuthContext = createContext<AuthState>({ session: null, member: null, loading: true, signOut: async () => {} })
+interface Member { user_id: string; display_name: string; role: string; email: string | null; must_change_pw: boolean }
+interface AuthState { session: Session | null; member: Member | null; loading: boolean; signOut: () => Promise<void>; refresh: () => Promise<void> }
+const AuthContext = createContext<AuthState>({ session: null, member: null, loading: true, signOut: async () => {}, refresh: async () => {} })
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
@@ -23,7 +23,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => sub.subscription.unsubscribe()
   }, [])
 
-  return <AuthContext.Provider value={{ session, member, loading, signOut: async () => { await supabase.auth.signOut() } }}>{children}</AuthContext.Provider>
+  return <AuthContext.Provider value={{ session, member, loading, signOut: async () => { await supabase.auth.signOut() }, refresh: () => load(session) }}>{children}</AuthContext.Provider>
 }
 
 // eslint-disable-next-line react-refresh/only-export-components

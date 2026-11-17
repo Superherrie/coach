@@ -27,12 +27,14 @@ Deno.serve(async (req) => {
   try {
     const asUser = createClient(url, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } } });
     if (!(await asUser.rpc("tr_is_member")).data) return json({ error: "not a member" }, 403);
+    const uid = (await asUser.auth.getUser()).data.user!.id;
     const { id } = await req.json();
-    const { data: cur } = await admin.from("tr_body_photos").select("*").eq("id", id).single();
+    const { data: cur } = await admin.from("tr_body_photos").select("*").eq("id", id).eq("user_id", uid).maybeSingle();
     if (!cur) return json({ error: "photo set not found" }, 404);
-    const { data: prevRows } = await admin.from("tr_body_photos").select("*").lt("date", cur.date).order("date", { ascending: false }).limit(1);
+    const { data: prevRows } = await admin.from("tr_body_photos").select("*").eq("user_id", uid).lt("date", cur.date).order("date", { ascending: false }).limit(1);
     const prev = prevRows?.[0];
-    const { data: s } = await admin.from("tr_settings").select("height_cm,birth_year,coach_model").eq("id", 1).single();
+    const { data: s } = await admin.from("tr_settings").select("height_cm,birth_year,coach_model,sex").eq("user_id", uid).maybeSingle();
+    const { data: me } = await admin.from("tr_members").select("display_name").eq("user_id", uid).maybeSingle();
 
     const img = async (path: string | null) => {
       if (!path) return null;
@@ -53,7 +55,7 @@ Deno.serve(async (req) => {
     if (!content.some((c) => c.type === "image")) return json({ error: "no photos in this set" }, 400);
     const age = s?.birth_year ? Number(String(cur.date).slice(0, 4)) - s.birth_year : null;
     content.push({ type: "text", text:
-`Progress photos of Herman, ${age ?? "mid-40s"}, male, ${s?.height_cm ?? "?"} cm, endurance athlete (cycling, training for Comrades ultra, heavy leg strength work).
+`Progress photos of ${me?.display_name ?? "the athlete"}, ${age ?? "age unknown"}, ${s?.sex ?? "sex not given"}, ${s?.height_cm ?? "?"} cm, endurance athlete.
 Current measurements: weight ${cur.weight_kg ?? "?"} kg, waist at navel ${cur.waist_cm ?? "?"} cm, neck ${cur.neck_cm ?? "?"} cm, US Navy tape estimate ${cur.navy_bf ?? "?"}%.
 ${prev ? `Previous set ${prev.date}: weight ${prev.weight_kg ?? "?"} kg, waist ${prev.waist_cm ?? "?"} cm, Navy ${prev.navy_bf ?? "?"}%, earlier visual read ${prev.ai?.bf_best ?? "?"}%.` : "This is the first set."}
 Estimate body fat as a realistic range from the photos together with the measurements (visual estimates are ±4–5% at best — keep the range honest). Then describe what visibly changed versus the previous set, if there is one; lighting, pose and pump differences can fake a change, so say when that may be the case. Be factual and neutral; no comments on appearance beyond what bears on body composition.` });
@@ -67,7 +69,7 @@ Estimate body fat as a realistic range from the photos together with the measure
     if (!out) return json({ error: `Claude couldn't read these photos (${res.stop_reason})` }, 422);
     const ai = { ...out, compared_to: prev?.date ?? null, model };
     await admin.from("tr_body_photos").update({ ai }).eq("id", id);
-    await admin.from("tr_coach_runs").insert({ kind: "body", summary: `${out.bf_low}–${out.bf_high}%`, model, usage: res.usage });
+    await admin.from("tr_coach_runs").insert({ user_id: uid, kind: "body", summary: `${out.bf_low}–${out.bf_high}%`, model, usage: res.usage });
     return json({ ai });
   } catch (e) {
     if (e instanceof Anthropic.APIError) return json({ error: `Claude API: ${e.message}` }, 502);

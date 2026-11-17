@@ -30,15 +30,19 @@ Deno.serve(async (req) => {
     const asUser = byCron ? createClient(url, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!)
       : createClient(url, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } } });
     if (!byCron && !(await asUser.rpc("tr_is_member")).data) return json({ error: "not a member" }, 403);
+    const admin = createClient(url, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const uid = byCron ? ((await admin.rpc("tr_owner")).data as string) : (await asUser.auth.getUser()).data.user!.id;
     const { image, media, text, meal } = await req.json();
     if (!image && !String(text ?? "").trim()) return json({ error: "a photo or a description is needed" }, 400);
     const mediaType = (["image/png", "image/webp"].includes(media) ? media : "image/jpeg") as "image/jpeg" | "image/png" | "image/webp";
-    const { data: s } = await asUser.from("tr_settings").select("coach_model").eq("id", 1).single();
+    const { data: s } = await admin.from("tr_settings").select("coach_model,sex,height_cm").eq("user_id", uid).maybeSingle();
+    const { data: w } = await admin.from("tr_wellness").select("weight_kg").eq("user_id", uid).not("weight_kg", "is", null).order("date", { ascending: false }).limit(1);
+    const kg = w?.[0]?.weight_kg;
 
     const content: Anthropic.ContentBlockParam[] = [];
     if (image) content.push({ type: "image", source: { type: "base64", media_type: mediaType, data: image } });
     content.push({ type: "text", text:
-`Estimate the energy and macros of this ${meal ?? "meal"} for a 96 kg male endurance athlete in Johannesburg who is tracking intake.
+`Estimate the energy and macros of this ${meal ?? "meal"} for a ${kg ? `${kg} kg ` : ""}${s?.sex ?? "adult"} endurance athlete in Johannesburg who is tracking intake.
 ${image ? "Use the photo; judge portion size from the plate, cutlery and packaging." : ""}${text ? `\nHis description: "${String(text).trim()}"` : ""}
 Rules: list each component separately with a realistic portion (South African servings and products — e.g. Woolworths, Checkers, Spur, Mugg & Bean, boerewors, pap, biltong, rusks — use the label values you know when a product is recognisable). Include cooking oil, butter, sauces and sugar in drinks when they are likely, as separate items. Where his description gives amounts, use them over the photo. Prefer a middle estimate, not the lowest. Round kcal to the nearest 5.` });
 
@@ -55,8 +59,8 @@ Rules: list each component separately with a realistic portion (South African se
     if (!out) return json({ error: "Couldn't read that meal — try again or type it" }, 422);
     if (!out.is_food) return json({ error: "That doesn't look like food or drink." }, 422);
     // count it in the Claude API spend card
-    await createClient(url, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!).from("tr_coach_runs")
-      .insert({ kind: "meal", summary: out.title, model, usage: res.usage });
+    await admin.from("tr_coach_runs")
+      .insert({ user_id: uid, kind: "meal", summary: out.title, model, usage: res.usage });
     const sum = (k: "kcal" | "protein_g" | "carbs_g" | "fat_g") => Math.round(out.items.reduce((x, i) => x + i[k], 0));
     return json({ draft: { ...out, kcal: sum("kcal"), protein_g: sum("protein_g"), carbs_g: sum("carbs_g"), fat_g: sum("fat_g"), source: image ? "photo" : "text" }, model, usage: res.usage });
   } catch (e) {

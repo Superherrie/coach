@@ -3,6 +3,7 @@ import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import Layout from './components/Layout'
 import Login from './pages/Login'
+import ChangePassword from './pages/ChangePassword'
 import Today from './pages/Today'
 import Plan from './pages/Plan'
 import Trends from './pages/Trends'
@@ -31,6 +32,7 @@ function Shell() {
   const { session, member, loading } = useAuth()
   if (loading) return <div className="h-full grid place-items-center text-muted">Loading…</div>
   if (!session || !member) return <Login />
+  if (member.must_change_pw) return <ChangePassword />
   return (
     <Routes>
       <Route element={<Layout />}>

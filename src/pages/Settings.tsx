@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import Icon from '../components/Icon'
 import { Card } from '../components/ui'
 import ApiSpend from '../components/ApiSpend'
-import { callFn, getSettings, useLoad } from '../lib/data'
+import { callFn, getSettings, myId, useLoad } from '../lib/data'
+import Users from '../components/Users'
 import { stamp } from '../lib/format'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
@@ -31,7 +32,7 @@ export default function Settings() {
   async function save() {
     setBusy(true)
     const n = (v: unknown) => (v === '' || v == null ? null : Number(v))
-    const { error } = await supabase.from('tr_settings').update({ height_cm: n(f.height_cm), ftp_w: n(f.ftp_w), max_hr: n(f.max_hr), run_max_hr: n(f.run_max_hr), easy_run_hr_cap: n(f.easy_run_hr_cap), goal_weight_kg: n(f.goal_weight_kg), birth_year: n(f.birth_year), activity_factor: n(f.activity_factor), kcal_deficit: n(f.kcal_deficit), coach_auto: f.coach_auto, coach_model: f.coach_model, notes: f.notes || null, updated_at: new Date().toISOString() }).eq('id', 1)
+    const { error } = await supabase.from('tr_settings').update({ height_cm: n(f.height_cm), ftp_w: n(f.ftp_w), max_hr: n(f.max_hr), run_max_hr: n(f.run_max_hr), easy_run_hr_cap: n(f.easy_run_hr_cap), goal_weight_kg: n(f.goal_weight_kg), birth_year: n(f.birth_year), activity_factor: n(f.activity_factor), kcal_deficit: n(f.kcal_deficit), coach_auto: f.coach_auto, coach_model: f.coach_model, notes: f.notes || null, sex: f.sex || null, coach_profile: f.coach_profile || null, updated_at: new Date().toISOString() }).eq('user_id', await myId())
     setMsg(error ? error.message : 'Saved'); setBusy(false); void reload()
   }
   const num = (k: keyof S, label: string, hint?: string) => (
@@ -70,6 +71,10 @@ export default function Settings() {
           {num('activity_factor', 'Non-exercise factor', '1.2 desk · 1.35 on your feet')}
           {num('kcal_deficit', 'Daily deficit kcal', 'target = out − this')}
         </div>
+        <label className="block mt-3"><span className="label">Sex</span>
+          <select className="input mt-1" value={f.sex ?? ''} onChange={e => setF({ ...f, sex: e.target.value })}><option value="">—</option><option value="male">Male</option><option value="female">Female</option></select></label>
+        <label className="block mt-3"><span className="label">About you for the coach — goal, event and date, history, injuries, weekly availability</span>
+          <textarea className="input mt-1 text-sm" rows={6} value={f.coach_profile ?? ''} onChange={e => setF({ ...f, coach_profile: e.target.value })} placeholder="e.g. Goal: Two Oceans half marathon, 11 Apr 2027, under 2:10. Running 3×/week, 25 km. Old knee niggle on long downhills. Gym Mon/Thu evenings." /></label>
         <label className="block mt-3"><span className="label">Notes for the coach</span><textarea className="input mt-1" rows={3} value={f.notes ?? ''} onChange={e => setF({ ...f, notes: e.target.value })} placeholder="e.g. Away 3–7 Dec, gym closed on Sundays, prefer long runs Saturday" /></label>
       </Card>
 
@@ -84,7 +89,8 @@ export default function Settings() {
         <p className="text-[11px] text-muted mt-2">Runs once a day at 05:25 after the Garmin sync, and whenever you ask.</p>
       </Card>
 
-      <ApiSpend />
+      {member?.role === 'owner' && <ApiSpend />}
+      {member?.role === 'owner' && <Users />}
 
       <div className="flex gap-2">
         <button className="btn btn-primary flex-1" disabled={busy} onClick={() => void save()}>Save settings</button>

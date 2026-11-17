@@ -6,7 +6,7 @@ import { Card, Scale, Stat } from '../components/ui'
 import { LogSheet, PlanSheet, SessionCard } from '../components/Session'
 import Proposals from '../components/Proposals'
 import { FoodCard } from '../components/Food'
-import { getActs, getEvents, getLastRun, getPending, getPhases, getPlanned, getSets, getSettings, getWellness, useLoad } from '../lib/data'
+import { myId, getActs, getEvents, getLastRun, getPending, getPhases, getPlanned, getSets, getSettings, getWellness, useLoad } from '../lib/data'
 import { addDays, daysBetween, dmy, num, stamp, today, weekday } from '../lib/format'
 import { pmc, readiness } from '../lib/load'
 import { supabase } from '../lib/supabase'
@@ -125,7 +125,8 @@ function CheckIn({ day, w, onSaved, height, last }: { day: string; w?: Wellness;
     if (f.neck_cm && +f.neck_cm !== w?.neck_cm) { row.neck_cm = +f.neck_cm; manual.neck_cm = true }
     if (f.resting_hr) { row.resting_hr = +f.resting_hr; manual.resting_hr = true }
     row.manual = manual
-    await supabase.from('tr_wellness').upsert(row, { onConflict: 'date' })
+    row.user_id = await myId()
+    await supabase.from('tr_wellness').upsert(row, { onConflict: 'user_id,date' })
     setBusy(false); setSaved(true); onSaved()
   }
   const whtr = f.waist_cm && height ? +f.waist_cm / height : null

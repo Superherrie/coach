@@ -17,11 +17,12 @@ Deno.serve(async (req) => {
     const cron = Deno.env.get("TR_CRON_TOKEN");
     if (!(cron && req.headers.get("x-cron-token") === cron)) {
       const asUser = createClient(url, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } } });
-      if (!(await asUser.rpc("tr_is_member")).data) return json({ error: "not a member" }, 403);
+      if (!(await asUser.rpc("tr_is_owner")).data) return json({ error: "owner only" }, 403);
     }
-    const { data: sec } = await admin.from("tr_secrets").select("value").eq("name", "anthropic_admin_key").maybeSingle();
+    const uid = (await admin.rpc("tr_owner")).data as string;
+    const { data: sec } = await admin.from("tr_secrets").select("value").eq("user_id", uid).eq("name", "anthropic_admin_key").maybeSingle();
     if (!sec?.value) return json({ error: "No Admin API key yet — add it in Settings", code: "no_key" }, 400);
-    const { data: s } = await admin.from("tr_settings").select("api_credit_at").eq("id", 1).single();
+    const { data: s } = await admin.from("tr_settings").select("api_credit_at").eq("user_id", uid).maybeSingle();
 
     const client = new Anthropic({ apiKey: sec.value });
     const now = Date.now();

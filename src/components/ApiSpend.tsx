@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Card, Stat } from './ui'
 import Icon from './Icon'
-import { callFn, fetchAll, useLoad } from '../lib/data'
+import { callFn, fetchAll, myId, useLoad } from '../lib/data'
 import { dmy, stamp, today } from '../lib/format'
 
 interface Account { since: string; since_usd: number; month_usd: number; last30_usd: number; by_key: { name: string; usd30: number }[]; refreshed_at: string | null }
@@ -29,7 +29,7 @@ export default function ApiSpend() {
   const { data, reload } = useLoad(async () => {
     const [runs, s] = await Promise.all([
       fetchAll<Run>(() => supabase.from('tr_coach_runs').select('created_at,kind,model,usage').not('usage', 'is', null).order('created_at')),
-      supabase.from('tr_settings').select('api_credit_usd,api_credit_at,usd_zar').eq('id', 1).single(),
+      supabase.from('tr_settings').select('api_credit_usd,api_credit_at,usd_zar').eq('user_id', await myId()).single(),
     ])
     return { runs, s: s.data as { api_credit_usd: number | null; api_credit_at: string | null; usd_zar: number | null } }
   }, [])
@@ -70,7 +70,7 @@ export default function ApiSpend() {
   }, [data, acct])
 
   async function save() {
-    const { error } = await supabase.from('tr_settings').update({ api_credit_usd: bal ? +bal : null, api_credit_at: bal ? new Date().toISOString() : null, usd_zar: fx ? +fx : 16.7 }).eq('id', 1)
+    const { error } = await supabase.from('tr_settings').update({ api_credit_usd: bal ? +bal : null, api_credit_at: bal ? new Date().toISOString() : null, usd_zar: fx ? +fx : 16.7 }).eq('user_id', await myId())
     setMsg(error ? error.message : 'Saved'); void reload()
   }
   if (!v || !data) return null

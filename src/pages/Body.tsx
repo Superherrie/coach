@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import Icon from '../components/Icon'
 import { Card, Empty, Sheet } from '../components/ui'
 import { shrink } from '../components/Food'
-import { callFn, getSettings, getWellness, useLoad } from '../lib/data'
+import { callFn, getSettings, getWellness, myId, useLoad } from '../lib/data'
 import { addDays, dmy, today } from '../lib/format'
 import { navyBf, split } from '../lib/body'
 import { supabase } from '../lib/supabase'
@@ -125,7 +125,7 @@ function AddSheet({ onClose, onDone, m }: { onClose: () => void; onDone: () => v
   async function save() {
     setErr(undefined); setBusy('Uploading…')
     try {
-      const stamp = `${date}/${Date.now()}`
+      const stamp = `${await myId()}/${date}/${Date.now()}`   // each user's photos live in their own folder
       const paths: Record<string, string | null> = { front_path: null, side_path: null, back_path: null }
       for (const v of VIEWS) {
         const f = files[v]; if (!f) continue

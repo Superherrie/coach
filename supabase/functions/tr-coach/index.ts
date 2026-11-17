@@ -1,8 +1,8 @@
 // tr-coach — Claude reads the plan, what was actually done and the morning check-in, and adjusts the coming days.
 //   POST { mode: 'daily' }                 → reviews and adjusts (the 05:15 schedule runs this after tr-sync)
-//   POST { mode: 'chat', message: '...' }  → answers Herman; any plan change comes back as a one-tap proposal
+//   POST { mode: 'chat', message: '...' }  → answers the signed-in athlete; any plan change comes back as a one-tap proposal
 // Small changes (next 7 days, not the long run, no extra load) apply automatically with a note; bigger ones become proposals.
-// Data sent to Claude comes from intervals.icu (Garmin) and Herman's own entries — never from Strava.
+// Data sent to Claude comes from intervals.icu (Garmin) and the athlete's own entries — never from Strava.
 // Secrets: ANTHROPIC_API_KEY, TR_CRON_TOKEN. Model from tr_settings.coach_model (default claude-opus-5-5).
 import { createClient } from "npm:@supabase/supabase-js@2";
 import Anthropic from "npm:@anthropic-ai/sdk";
@@ -16,31 +16,13 @@ const addDays = (s: string, n: number) => ymd(new Date(Date.parse(s) + n * 864e5
 const sastToday = () => ymd(new Date(Date.now() + 2 * 3600e3));
 
 // ---------- the stable part of the prompt (cached) ----------
-const SYSTEM = `You are the training coach inside Herman de Vries's personal training app. You plan and adjust two sessions a day (morning "am" and afternoon "pm"; often one is rest) towards Comrades 2027.
+const SYSTEM = `You are the training coach inside a personal training app. You plan and adjust two sessions a day (morning "am" and afternoon "pm"; often one is rest) towards the athlete's goal. Who the athlete is, their goal and the principles to follow are in the ATHLETE PROFILE that follows these instructions; the athlete's name is given there.
 
-ATHLETE
-- Herman, 46, Johannesburg (Fourways), ~1,700 m altitude. Metric units, South African dates. Runner first: 5 Comrades finishes (PB 9:42 bronze, 2022 Down Run 9:41:58), 3 Two Oceans, many marathons. Big rider (~96 kg, unverified), strong aerobic base.
-- Cycling: FTP 310 W (settled 28 Oct 2026), max HR 185. Very low HR for power (233 W at 122 bpm is normal). Easy rides 190–215 W, HR < 135; tempo 245–265 W; threshold 290–310 W; VO2 330–350 W. Power is the primary control on the bike, HR the cross-check. Compare efficiency factor only within a session type. Cadence changes are often gearing, not fatigue.
-- Known patterns: escalation (goes out too hard, fades late) — largely fixed in training, keep naming it; watt-creep on easy days; Saturday creep (cap Saturday at 75 min when a long session follows Sunday); forgets the lap button on structured sessions.
-- Health: right medial ankle niggle since Aug 2026 (posterior tibial / pronation), self-managed with calf and mobility work. Do not suggest a physio unless it flares. Plan rule: ankle pain above 3/10 during or after a run → back off running for a week (bike instead).
-- Weight: steady loss toward 85–91 kg; no aggressive cutting in heavy blocks; no diet plans unless asked.
-- Food log (from 18 Nov 2026): Herman logs meals (estimated by Claude from photos or dictation, reviewed by him). "food_last_14_days" gives kcal in per logged day; kcal out is resting burn × factor + session calories. Use it to (a) flag under-fuelling around hard or long sessions (a big deficit the day before a long run or quality day hurts the session), (b) keep the deficit moderate — about 300–500 kcal/day on easy days, near zero on long-run and quality days, (c) check that protein is around 1.6 g/kg while lifting heavy. Estimates are ±15–20%, and unlogged days are not zero days. One concrete lever beats a plan.
-
-GOAL — Comrades Down Run, Sun 13 June 2027, ~91 km Pietermaritzburg → Durban, sub-9 (Bill Rowan): ~5:56/km average, first ~50 km ≈ 4:55, last ~40 km ≈ 4:05. In 2022 the last 15 km fell to 6:30–7:30/km with HR 120–130: the legs failed (quad durability on downhills), not the engine. Levers: downhill durability, pacing discipline over the first 30 km, body weight.
-
-PRINCIPLES
-- About 80% of running at conversational effort (easy HR cap from settings until the 10 km time trial sets paces). Weekly km in the phase table are CEILINGS, not targets; the ankle and the December time trial set the real numbers. Ramp run volume no more than ~10% a week; every 3rd or 4th week is a recovery week (~30% less), plus the weeks after the qualifier, Cancún and Loskop.
-- Heavy leg strength through every phase (back squat or trap-bar deadlift, Romanian deadlift, Bulgarian split squat, slow eccentric step-downs, heavy straight- and bent-knee calf raises), capped at 2 leg sessions a week, heavy and low-rep. Leg gym goes on quality-run days, at least 6 hours after the run (pm slot). Never legs the day before a long run or within 5 days of a race that matters. If a gym session and a key run clash, the gym goes.
-- Body composition ("body_composition"): tape estimates (US Navy, ±3–4%) and visual reads of monthly progress photos (±4–5%). Use the trend with weight to judge fat vs lean change — e.g. weight flat while waist and body fat fall during heavy lifting is a good result. Never treat one reading as a trend.
-- Mobility: the app has guided workouts ("workout_library"). Schedule them as sport "mobility" with targets.workout_id set, on easy or rest days or the evening before a long run (not right before a hard session). "Hip mobility for running" 2–3 times a week suits him (stride, glute-medius control for the ankle/pronation issue). It counts as near-zero load.
-- Upper-body gym is recovery-grade: it must not add fatigue — moderate loads, no failure. It can sit on easy or rest days.
-- Bike as support: 1–2 easy rides a week through April for low-impact aerobic volume (easy band above).
-- Pacing rehearsal from April: long runs finish with 10–15 km at goal pace (5:50–6:00/km) on tired legs, on downhill routes. Practise race fuelling on every run over 2.5 h (60 g carbs/h).
-- Two hard days a week is the cap (quality run, long run). Prescribe exact targets (pace or HR for runs, watts for rides, kg × reps for gym), a stopping rule for quality sessions, and remind him to press the lap button on structured sessions.
-- Missing sessions: do not cram missed work into the following days. Re-flow the week: keep the long run and one quality session, drop the rest. Two or more missed key sessions or a sick/injured spell → reduce the next week and say so.
-- Stronger than expected (e.g. easy pace improving at the same HR, quality sessions completed with HR lower than predicted, check-ins fresh): progress by small steps — one notch more volume or intensity, never both in one week.
-- Fatigue signals: resting HR ≥ 5 bpm above its 7-day baseline, HRV clearly below baseline, legs 4–5/5, poor sleep, form (TSB) below about −25 → swap the day's hard session for easy or rest; two days in a row → reduce the week.
-- Do not let one session become a trend. State uncertainty. When you were wrong before, say so plainly.
+DATA YOU GET (per athlete, in the JSON)
+- Plan, sessions done (Garmin via intervals.icu, or logged by hand), morning check-in (legs, energy, pain), resting HR / HRV / sleep, gym sets.
+- food_last_14_days: meals logged (estimated from photos or dictation, ±15–20%); unlogged days are not zero days. Flag under-fuelling before long or hard sessions; keep any deficit moderate; one concrete lever beats a diet plan.
+- body_composition: tape (US Navy) and progress-photo body-fat estimates — numbers only. Read the trend with weight; never treat one reading as a trend.
+- workout_library: guided workouts; schedule them as sport "mobility" (or as fits) with targets.workout_id set.
 
 LOAD UNITS
 - "load" is a TSS-like daily training load (intervals.icu where measured; estimated from duration × RPE otherwise). fitness (CTL, 42-day), fatigue (ATL, 7-day), form = fitness − fatigue. Sustainable fitness ramp ≈ 5–8 points a month.
@@ -73,13 +55,13 @@ const Change = z.object({
   after: Session.nullable().describe("null removes the session"),
 });
 const Daily = z.object({
-  summary: z.string().describe("2–4 sentences for Herman: how the last days went against plan, what the data says, what changed"),
+  summary: z.string().describe("2–4 sentences for the athlete: how the last days went against plan, what the data says, what changed"),
   today_note: z.string().describe("one or two lines about today's sessions"),
   proposal_title: z.string().nullable().describe("title for the big changes, if any"),
   changes: z.array(Change),
 });
 const Chat = z.object({
-  reply: z.string().describe("the answer to Herman, phone-length"),
+  reply: z.string().describe("the answer to the athlete, phone-length"),
   proposal_title: z.string().nullable(),
   changes: z.array(Change).describe("only if he asked for a plan change or the answer requires one; these come to him as a proposal to accept"),
 });
@@ -108,34 +90,54 @@ Deno.serve(async (req) => {
   try {
     const cron = Deno.env.get("TR_CRON_TOKEN");
     const byCron = !!cron && req.headers.get("x-cron-token") === cron;
-    if (!byCron) {
+    const body = await req.json().catch(() => ({}));
+    let uid: string;
+    if (byCron) {
+      if (!body.user_id) {
+        // the morning schedule: review every member who has a plan, one call each
+        const { data: ms } = await admin.from("tr_members").select("user_id");
+        const out: unknown[] = [];
+        for (const m of ms ?? []) {
+          const { count } = await admin.from("tr_planned").select("id", { count: "exact", head: true }).eq("user_id", m.user_id);
+          if (!count) continue;
+          const r = await fetch(`${url}/functions/v1/tr-coach`, { method: "POST", headers: { "Content-Type": "application/json", "x-cron-token": cron! }, body: JSON.stringify({ ...body, user_id: m.user_id }) });
+          out.push({ user_id: m.user_id, status: r.status });
+        }
+        return json({ ok: true, users: out });
+      }
+      uid = String(body.user_id);
+    } else {
       const asUser = createClient(url, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } } });
       if (!(await asUser.rpc("tr_is_member")).data) return json({ error: "not a member" }, 403);
+      uid = (await asUser.auth.getUser()).data.user!.id;
     }
     if (!Deno.env.get("ANTHROPIC_API_KEY")) return json({ error: "No ANTHROPIC_API_KEY secret in Supabase" }, 503);
-    const body = await req.json().catch(() => ({}));
+    const { data: me } = await admin.from("tr_members").select("display_name").eq("user_id", uid).maybeSingle();
+    const who = me?.display_name ?? "the athlete";
     const mode: "daily" | "chat" | "insight" = body.mode === "chat" ? "chat" : body.mode === "insight" ? "insight" : "daily";
     if (mode === "chat" && !String(body.message ?? "").trim()) return json({ error: "message required" }, 400);
     if (mode === "insight" && (!body.chart || !body.data)) return json({ error: "chart and data required" }, 400);
 
     const today = sastToday();
+    const profileOf = (p: string | null | undefined) => `ATHLETE PROFILE — ${who}\n${p?.trim() || "No profile written yet. Ask about their goal, event, history, injuries and weekly availability before prescribing anything ambitious; keep sessions conservative until then. Units metric."}`;
     const from = addDays(today, -28), to = addDays(today, 21), loadFrom = addDays(today, -120);
     const [settings, phases, events, planned, acts, well, sets, pending, chat, meals] = await Promise.all([
-      admin.from("tr_settings").select("height_cm,ftp_w,max_hr,run_max_hr,easy_run_hr_cap,goal_weight_kg,coach_auto,coach_model,notes,birth_year,activity_factor,kcal_deficit").eq("id", 1).single(),
-      admin.from("tr_phases").select("name,start_date,end_date,focus,run_km_from,run_km_to,long_run_from,long_run_to,leg_sessions,key_sessions,strength_emphasis").order("start_date"),
-      admin.from("tr_events").select("date,name,kind,distance_km,purpose,target,on_track,borderline,rethink,result").order("date"),
-      admin.from("tr_planned").select("id,date,slot,sport,title,description,duration_min,distance_km,intensity,targets,planned_load,status,locked,source,change_note").gte("date", from).lte("date", to).order("date"),
-      admin.from("tr_activities").select("date,slot,sport,name,duration_s,distance_m,elev_m,avg_hr,max_hr,avg_watts,np_watts,avg_pace_s,gap_pace_s,load,ef,decoupling,rpe,notes,planned_id,trainer,calories").gte("date", loadFrom).order("date"),
-      admin.from("tr_wellness").select("date,resting_hr,hrv,sleep_h,weight_kg,waist_cm,legs,energy,ankle_pain,notes").gte("date", addDays(today, -42)).order("date"),
-      admin.from("tr_gym_sets").select("date,exercise,set_no,reps,kg").gte("date", addDays(today, -35)).order("date"),
-      admin.from("tr_proposals").select("id,created_at,title,why,changes").eq("status", "pending"),
-      mode === "chat" ? admin.from("tr_chat").select("role,content,created_at").order("created_at", { ascending: false }).limit(12) : Promise.resolve({ data: [] }),
-      admin.from("tr_meals").select("date,meal,description,kcal,protein_g,carbs_g,fat_g").gte("date", addDays(today, -14)).order("date"),
+      admin.from("tr_settings").select("height_cm,ftp_w,max_hr,run_max_hr,easy_run_hr_cap,goal_weight_kg,coach_auto,coach_model,notes,birth_year,activity_factor,kcal_deficit,sex,coach_profile").eq("user_id", uid).maybeSingle(),
+      admin.from("tr_phases").select("name,start_date,end_date,focus,run_km_from,run_km_to,long_run_from,long_run_to,leg_sessions,key_sessions,strength_emphasis").eq("user_id", uid).order("start_date"),
+      admin.from("tr_events").select("date,name,kind,distance_km,purpose,target,on_track,borderline,rethink,result").eq("user_id", uid).order("date"),
+      admin.from("tr_planned").select("id,date,slot,sport,title,description,duration_min,distance_km,intensity,targets,planned_load,status,locked,source,change_note").eq("user_id", uid).gte("date", from).lte("date", to).order("date"),
+      admin.from("tr_activities").select("date,slot,sport,name,duration_s,distance_m,elev_m,avg_hr,max_hr,avg_watts,np_watts,avg_pace_s,gap_pace_s,load,ef,decoupling,rpe,notes,planned_id,trainer,calories").eq("user_id", uid).gte("date", loadFrom).order("date"),
+      admin.from("tr_wellness").select("date,resting_hr,hrv,sleep_h,weight_kg,waist_cm,legs,energy,ankle_pain,notes").eq("user_id", uid).gte("date", addDays(today, -42)).order("date"),
+      admin.from("tr_gym_sets").select("date,exercise,set_no,reps,kg").eq("user_id", uid).gte("date", addDays(today, -35)).order("date"),
+      admin.from("tr_proposals").select("id,created_at,title,why,changes").eq("user_id", uid).eq("status", "pending"),
+      mode === "chat" ? admin.from("tr_chat").select("role,content,created_at").eq("user_id", uid).order("created_at", { ascending: false }).limit(12) : Promise.resolve({ data: [] }),
+      admin.from("tr_meals").select("date,meal,description,kcal,protein_g,carbs_g,fat_g").eq("user_id", uid).gte("date", addDays(today, -14)).order("date"),
     ]);
     const { data: library } = await admin.from("tr_workouts").select("id,name,category,duration_min,when_to_use");
     // body composition trend: tape (US Navy) from waist/neck/height and visual reads of progress photos — numbers only, never photos
-    const { data: bodyRows } = await admin.from("tr_wellness").select("date,weight_kg,waist_cm,neck_cm").gte("date", addDays(today, -120)).order("date");
-    const { data: photoReads } = await admin.from("tr_body_photos").select("date,weight_kg,ai").gte("date", addDays(today, -365)).order("date");
+    const { data: bodyRows } = await admin.from("tr_wellness").select("date,weight_kg,waist_cm,neck_cm").eq("user_id", uid).gte("date", addDays(today, -120)).order("date");
+    const { data: photoReads } = await admin.from("tr_body_photos").select("date,weight_kg,ai").eq("user_id", uid).gte("date", addDays(today, -365)).order("date");
+    const profile = profileOf(settings.data?.coach_profile);
     const h = Number(settings.data?.height_cm ?? 0);
     let neck: number | null = null;
     const tape = (bodyRows ?? []).flatMap((r) => {
@@ -174,7 +176,7 @@ Deno.serve(async (req) => {
     }));
     const context = {
       today, weekday: new Date(today).toLocaleDateString("en-ZA", { weekday: "long" }),
-      settings: settings.data, phases: phases.data, events: events.data,
+      settings: { ...(settings.data ?? {}), coach_profile: undefined }, phases: phases.data, events: events.data,
       plan: (planned.data ?? []).map((p) => ({ ...p, past: p.date < today })),
       actuals_last_28_days: recentActs,
       wellness_last_42_days: well.data,
@@ -190,15 +192,15 @@ Deno.serve(async (req) => {
     if (mode === "insight") {
       const chart = String(body.chart).slice(0, 60);
       const kind = `insight:${chart}`;
-      const { data: run } = await admin.from("tr_coach_runs").insert({ kind }).select("id").single();
+      const { data: run } = await admin.from("tr_coach_runs").insert({ user_id: uid, kind }).select("id").single();
       runId = run?.id ?? null;
-      const text = `Herman tapped the AI button on the "${String(body.title ?? chart)}" chart on the Trends screen (range: ${String(body.range ?? "")}).
+      const text = `${who} tapped the AI button on the "${String(body.title ?? chart)}" chart on the Trends screen (range: ${String(body.range ?? "")}).
 What the chart shows: ${String(body.about ?? "")}
 
 CHART DATA (JSON, exactly what is plotted):
 ${JSON.stringify(body.data).slice(0, 120000)}
 
-Give him insight on THIS chart: what the trend actually is (with the numbers), what is driving it (use the plan, sessions, wellness, phases and races in the context), whether it is where it should be for this point of the Comrades build, and the one thing worth doing about it. Say plainly when the data is too thin or a measurement quirk could explain it (e.g. Strava-imported rides scored on average watts, HR strap spikes, gearing). Do not repeat the chart back; interpret it. Do not change the plan here.
+Give ${who} insight on THIS chart: what the trend actually is (with the numbers), what is driving it (use the plan, sessions, wellness, phases and races in the context), whether it is where it should be for this point of their build towards the goal in the profile, and the one thing worth doing about it. Say plainly when the data is too thin or a measurement quirk could explain it (e.g. Strava-imported rides scored on average watts, HR strap spikes, gearing). Do not repeat the chart back; interpret it. Do not change the plan here.
 
 CONTEXT (JSON):
 ${JSON.stringify(context)}`;
@@ -207,7 +209,7 @@ ${JSON.stringify(context)}`;
       const ask = (model: string) => client.messages.parse({
         model, max_tokens: 16000,
         output_config: { effort: "medium", format: zodOutputFormat(Insight) },
-        system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral", ttl: "1h" } }],
+        system: [{ type: "text", text: SYSTEM }, { type: "text", text: profile, cache_control: { type: "ephemeral", ttl: "1h" } }],
         messages: [{ role: "user", content: text }],
       });
       let res = await ask(primary); let model = primary;
@@ -220,18 +222,18 @@ ${JSON.stringify(context)}`;
 
     const userText = mode === "daily"
       ? `Daily review for ${today}. Compare the last days with the plan, read the wellness trend and the check-in, then adjust the next 14 days only where needed. If nothing needs changing, return no changes.\n\nDATA (JSON):\n${JSON.stringify(context)}`
-      : `DATA (JSON):\n${JSON.stringify(context)}\n\nRECENT CHAT (newest first):\n${JSON.stringify(chat.data)}\n\nHerman: ${String(body.message).trim()}`;
+      : `DATA (JSON):\n${JSON.stringify(context)}\n\nRECENT CHAT (newest first):\n${JSON.stringify(chat.data)}\n\n${who}: ${String(body.message).trim()}`;
 
-    const { data: run } = await admin.from("tr_coach_runs").insert({ kind: mode }).select("id").single();
+    const { data: run } = await admin.from("tr_coach_runs").insert({ user_id: uid, kind: mode }).select("id").single();
     runId = run?.id ?? null;
-    if (mode === "chat") await admin.from("tr_chat").insert({ role: "user", content: String(body.message).trim() });
+    if (mode === "chat") await admin.from("tr_chat").insert({ user_id: uid, role: "user", content: String(body.message).trim() });
 
     const client = new Anthropic();
     const primary = settings.data?.coach_model || "claude-opus-5-5";
     const ask = (model: string) => client.messages.parse({
       model, max_tokens: 16000,
       output_config: { effort: mode === "chat" ? "medium" : "high", format: zodOutputFormat(mode === "daily" ? Daily : Chat) },
-      system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral", ttl: "1h" } }],
+      system: [{ type: "text", text: SYSTEM }, { type: "text", text: profile, cache_control: { type: "ephemeral", ttl: "1h" } }],
       messages: [{ role: "user", content: userText }],
     });
     let res = await ask(primary); let model = primary;
@@ -256,10 +258,10 @@ ${JSON.stringify(context)}`;
       if (auto && small) {
         if (after) {
           const { error } = await admin.from("tr_planned").upsert({
-            date: c.date, slot: c.slot, sport: after.sport, title: after.title, description: after.description, duration_min: after.duration_min,
+            user_id: uid, date: c.date, slot: c.slot, sport: after.sport, title: after.title, description: after.description, duration_min: after.duration_min,
             distance_km: after.distance_km, intensity: after.intensity, targets: after.targets, planned_load: after.planned_load,
             source: "coach", change_note: c.why, status: "planned", updated_at: new Date().toISOString(),
-          }, { onConflict: "date,slot" });
+          }, { onConflict: "user_id,date,slot" });
           if (error) throw error;
         } else if (before) await admin.from("tr_planned").delete().eq("id", before.id);
         applied.push(entry);
@@ -267,12 +269,12 @@ ${JSON.stringify(context)}`;
     }
     let proposalId: number | null = null;
     if (proposed.length) {
-      const { data: p } = await admin.from("tr_proposals").insert({ run_id: runId, title: out.proposal_title || "Plan change", why: mode === "daily" ? out.summary : out.reply, changes: proposed }).select("id").single();
+      const { data: p } = await admin.from("tr_proposals").insert({ user_id: uid, run_id: runId, title: out.proposal_title || "Plan change", why: mode === "daily" ? out.summary : out.reply, changes: proposed }).select("id").single();
       proposalId = p?.id ?? null;
     }
     const summary = mode === "daily" ? out.summary : out.reply;
     await admin.from("tr_coach_runs").update({ summary, today_note: out.today_note ?? null, model, usage: { ...res.usage, applied: applied.length, proposed: proposed.length } }).eq("id", runId);
-    if (mode === "chat") await admin.from("tr_chat").insert({ role: "assistant", content: out.reply });
+    if (mode === "chat") await admin.from("tr_chat").insert({ user_id: uid, role: "assistant", content: out.reply });
     return json({ ok: true, summary, today_note: out.today_note ?? null, applied, proposal_id: proposalId, proposed: proposed.length, model, usage: res.usage });
   } catch (e) {
     const msg = e instanceof Anthropic.RateLimitError ? "Claude is rate-limited — try again in a minute"
