@@ -6,9 +6,12 @@ import { useLoad } from '../lib/data'
 import { dmy, today } from '../lib/format'
 import { supabase } from '../lib/supabase'
 import { NextWeights, StrengthPlayer } from '../components/Strength'
+import { AddToPlan, WorkoutEditor } from '../components/WorkoutEditor'
+import { useAuth } from '../context/AuthContext'
+import { myId } from '../lib/data'
 
 export interface WEx { key: string; name: string; sets?: number; reps?: number; seconds?: number; per_side?: boolean; rest_s?: number; cues: string[]; why?: string; video_id: string | null; video_title: string | null; video_channel: string | null }
-export interface Workout { id: string; name: string; category: string; summary: string | null; duration_min: number | null; equipment: string | null; when_to_use: string | null; exercises: WEx[] }
+export interface Workout { id: string; created_by?: string | null; name: string; category: string; summary: string | null; duration_min: number | null; equipment: string | null; when_to_use: string | null; exercises: WEx[] }
 
 const dose = (e: WEx & { rep_min?: number; rep_max?: number }) => e.rep_min
   ? `${e.sets ?? 3} × ${e.rep_min}–${e.rep_max} reps${e.per_side ? ' each leg' : ''}`
@@ -17,20 +20,38 @@ const dose = (e: WEx & { rep_min?: number; rep_max?: number }) => e.rep_min
 /** /workouts — the library; /workouts/:id — one workout with its exercises and the guided player */
 export default function Workouts() {
   const { id } = useParams()
-  const { data } = useLoad(async () => {
-    const [w, log] = await Promise.all([
+  const nav = useNavigate()
+  const { member } = useAuth()
+  const { data, reload } = useLoad(async () => {
+    const [w, log, me] = await Promise.all([
       supabase.from('tr_workouts').select('*').order('category').order('name'),
       supabase.from('tr_workout_log').select('workout_id,date').order('date', { ascending: false }).limit(200),
+      myId(),
     ])
-    return { list: (w.data ?? []) as Workout[], log: (log.data ?? []) as { workout_id: string; date: string }[] }
+    return { list: (w.data ?? []) as Workout[], log: (log.data ?? []) as { workout_id: string; date: string }[], me }
   }, [])
+  const [q, setQ] = useState(''); const [cat, setCat] = useState('all'); const [editing, setEditing] = useState<Workout | 'new'>()
   if (!data) return <p className="text-muted py-10 text-center animate-pulse">Loading…</p>
   const w = id ? data.list.find(x => x.id === id) : undefined
-  if (id && w) return <WorkoutDetail w={w} last={data.log.find(l => l.workout_id === w.id)?.date} />
+  const canEdit = (x: Workout) => x.created_by === data.me || member?.role === 'owner'
+  if (id && w) return <>
+    <WorkoutDetail w={w} last={data.log.find(l => l.workout_id === w.id)?.date} onEdit={canEdit(w) ? () => setEditing(w) : undefined} />
+    {editing && editing !== 'new' && <WorkoutEditor w={editing} onClose={() => setEditing(undefined)} onSaved={nid => { setEditing(undefined); void reload(); if (!nid) nav('/workouts') }} />}
+  </>
+  const cats = ['all', ...new Set(data.list.map(x => x.category))]
+  const shown = data.list.filter(x => (cat === 'all' || x.category === cat) && (!q || `${x.name} ${x.summary ?? ''} ${x.exercises.map(e => e.name).join(' ')}`.toLowerCase().includes(q.toLowerCase())))
   return (
     <div className="space-y-4 py-3">
-      <h1 className="display text-3xl leading-none">Workouts</h1>
-      {data.list.map(x => (
+      <div className="flex items-center gap-2">
+        <h1 className="display text-3xl leading-none flex-1">Workouts</h1>
+        <button className="btn btn-primary !py-1.5 text-sm" onClick={() => setEditing('new')}><Icon name="plus" size={15} />New</button>
+      </div>
+      <p className="text-xs text-muted -mt-2">A shared library: everyone can use every workout and add their own.</p>
+      <div className="flex gap-2 items-center">
+        <input className="input flex-1 min-w-0" placeholder="Search workouts or exercises" value={q} onChange={e => setQ(e.target.value)} />
+      </div>
+      <div className="flex flex-wrap gap-1.5">{cats.map(c => <button key={c} onClick={() => setCat(c)} className={`chip !py-1.5 !px-3 capitalize ${cat === c ? '!bg-brand !text-surface' : ''}`}>{c}</button>)}</div>
+      {shown.map(x => (
         <Link key={x.id} to={`/workouts/${x.id}`} className="card p-4 flex items-center gap-3">
           <span className="grid place-items-center w-11 h-11 rounded-xl text-white shrink-0" style={{ background: x.category === 'strength' ? 'var(--s3)' : 'var(--s4)' }}><Icon name={x.category === 'strength' ? 'dumbbell' : 'stretch'} size={24} /></span>
           <span className="flex-1 min-w-0">
@@ -40,7 +61,8 @@ export default function Workouts() {
           <Icon name="right" className="text-muted" />
         </Link>
       ))}
-      {!data.list.length && <Empty>No workouts yet.</Empty>}
+      {!shown.length && <Empty>{data.list.length ? 'Nothing matches.' : 'No workouts yet.'}</Empty>}
+      {editing === 'new' && <WorkoutEditor onClose={() => setEditing(undefined)} onSaved={nid => { setEditing(undefined); void reload(); if (nid) nav(`/workouts/${nid}`) }} />}
     </div>
   )
 }
@@ -64,8 +86,8 @@ function Video({ e }: { e: WEx }) {
   )
 }
 
-function WorkoutDetail({ w, last }: { w: Workout; last?: string }) {
-  const [play, setPlay] = useState(false)
+function WorkoutDetail({ w, last, onEdit }: { w: Workout; last?: string; onEdit?: () => void }) {
+  const [play, setPlay] = useState(false); const [adding, setAdding] = useState(false)
   const strength = w.category === 'strength'
   if (play) return strength ? <StrengthPlayer w={w} onExit={() => setPlay(false)} /> : <Player w={w} onExit={() => setPlay(false)} />
   return (
@@ -76,6 +98,11 @@ function WorkoutDetail({ w, last }: { w: Workout; last?: string }) {
         <p className="text-xs text-muted mt-1">{w.duration_min} min · {w.exercises.length} exercises{last ? ` · last done ${dmy(last)}` : ''}</p>
       </div>
       <button className="btn btn-ember w-full !py-3 text-base" onClick={() => setPlay(true)}>{strength ? '▶ Start session (log sets)' : '▶ Start guided session'}</button>
+      <div className="flex gap-2">
+        <button className="btn btn-ghost flex-1" onClick={() => setAdding(true)}><Icon name="calendar" size={16} />Add to my plan</button>
+        {onEdit && <button className="btn btn-ghost" onClick={onEdit}><Icon name="edit" size={16} />Edit</button>}
+      </div>
+      {adding && <AddToPlan w={w} onClose={() => setAdding(false)} />}
       {strength && <NextWeights w={w} />}
       {w.summary && <p className="text-sm">{w.summary}</p>}
       <div className="text-xs text-muted space-y-0.5">{w.when_to_use && <p><b className="text-ink">When:</b> {w.when_to_use}</p>}{w.equipment && <p><b className="text-ink">Kit:</b> {w.equipment}</p>}</div>
