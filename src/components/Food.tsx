@@ -111,13 +111,28 @@ function MealSheet({ day, meal, onClose, onSaved }: { day: string; meal?: Meal; 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
 
+  // iPhone home-screen apps have no working browser speech recognition, so there (and whenever it fails) the mic button
+  // opens the keyboard instead: its own mic key does the dictation. In Safari/Chrome tabs the browser recogniser is tried first.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const standalone = (navigator as any).standalone === true || window.matchMedia('(display-mode: standalone)').matches
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent)
+  const textRef = useRef<HTMLTextAreaElement>(null)
+  const [hint, setHint] = useState<string>()
+  const keyboard = (why?: string) => {
+    textRef.current?.focus()
+    setHint(why ?? (isIOS ? 'Tap the 🎤 on the keyboard and speak. (No mic key? Settings → General → Keyboard → Enable Dictation.)' : 'Use the microphone on your keyboard to dictate.'))
+  }
   function dictate() {
-    if (!SR) return
-    const r = new SR(); r.lang = 'en-ZA'; r.interimResults = false
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    r.onresult = (e: any) => setText(t => (t ? t + ' ' : '') + e.results[0][0].transcript)
-    r.onend = () => setListening(false); r.onerror = () => setListening(false)
-    setListening(true); r.start()
+    if (!SR || (isIOS && standalone)) return keyboard()
+    try {
+      const r = new SR(); r.lang = 'en-ZA'; r.interimResults = false; r.continuous = false
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      r.onresult = (e: any) => { setText(t => (t ? t + ' ' : '') + e.results[0][0].transcript); setHint(undefined) }
+      r.onend = () => setListening(false)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      r.onerror = (e: any) => { setListening(false); keyboard(e?.error === 'not-allowed' || e?.error === 'service-not-allowed' ? 'Microphone access is blocked for this page — use the mic on your keyboard instead.' : undefined) }
+      setListening(true); setHint('Listening… speak now'); r.start()
+    } catch { setListening(false); keyboard() }
   }
   async function read() {
     setBusy('read'); setErr(undefined)
@@ -169,10 +184,10 @@ function MealSheet({ day, meal, onClose, onSaved }: { day: string; meal?: Meal; 
           {photo ? <div className="relative"><img src={photo.url} alt="Meal" className="w-full max-h-56 object-cover rounded-xl" /><button className="absolute top-2 right-2 chip !bg-black/60 !text-white" onClick={() => setPhoto(undefined)}><Icon name="close" size={12} />Remove</button></div>
             : <button className="btn btn-ghost w-full" onClick={() => fileRef.current?.click()}><Icon name="camera" size={18} />Take or choose a photo</button>}
           <div className="relative">
-            <textarea className="input pr-12" rows={2} value={text} onChange={e => setText(e.target.value)} placeholder={photo ? 'Anything the photo misses? (e.g. "cooked in butter, 300 g steak")' : 'Say or type it: "2 eggs, 2 slices toast with butter, flat white"'} />
-            {SR && <button type="button" onClick={dictate} aria-label="Dictate" className={`absolute right-2 top-2 p-2 rounded-full ${listening ? 'bg-ember text-white animate-pulse' : 'text-muted'}`}><Icon name="mic" size={18} /></button>}
+            <textarea ref={textRef} className="input pr-12" rows={2} value={text} onChange={e => setText(e.target.value)} placeholder={photo ? 'Anything the photo misses? (e.g. "cooked in butter, 300 g steak")' : 'Say or type it: "2 eggs, 2 slices toast with butter, flat white"'} />
+            <button type="button" onClick={dictate} aria-label="Dictate" className={`absolute right-2 top-2 p-2 rounded-full ${listening ? 'bg-ember text-white animate-pulse' : 'text-muted'}`}><Icon name="mic" size={18} /></button>
           </div>
-          {!SR && <p className="text-[11px] text-muted -mt-2">Tip: tap the microphone on your keyboard to dictate.</p>}
+          {hint && <p className="text-xs text-brand -mt-2">{hint}</p>}
           <button className="btn btn-ember w-full" disabled={!!busy || (!photo && !text.trim())} onClick={() => void read()}><Icon name="spark" size={16} />{busy === 'read' ? 'Reading…' : items.length ? 'Read again' : 'Estimate calories'}</button>
         </>}
         {err && <p className="text-sm text-bad">{err}</p>}
