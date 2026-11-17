@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react'
 import { Area, Bar, BarChart, CartesianGrid, ComposedChart, Line, LineChart, ReferenceLine, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from 'recharts'
 import { AXIS, Card, Empty, GRID, Legend, Stat, Tip } from '../components/ui'
-import { getActs, getEvents, getPlanned, getSets, getSettings, getWellness, useLoad } from '../lib/data'
+import { fetchAll, getActs, getEvents, getPlanned, getSets, getSettings, getWellness, useLoad } from '../lib/data'
+import { supabase } from '../lib/supabase'
+import { kcalOut, KCAL_PER_KG } from '../lib/calories'
 import { addDays, dm, monday, num, pace, today } from '../lib/format'
 import { e1rm, pmc, rolling } from '../lib/load'
 import { useSynced } from './Today'
@@ -14,8 +16,9 @@ export default function Trends() {
   const [days, setDays] = useState(91)
   const t = today(), from = addDays(t, -days), warm = addDays(from, -120)
   const { data, reload } = useLoad(async () => {
-    const [acts, well, planned, sets, settings, events] = await Promise.all([getActs(warm, t), getWellness(from, t), getPlanned(from, addDays(t, 210)), getSets(from), getSettings(), getEvents()])
-    return { acts, well, planned, sets, settings, events }
+    const [acts, well, planned, sets, settings, events, meals] = await Promise.all([getActs(warm, t), getWellness(from, t), getPlanned(from, addDays(t, 210)), getSets(from), getSettings(), getEvents(),
+      fetchAll<{ date: string; kcal: number; protein_g: number | null }>(() => supabase.from('tr_meals').select('date,kcal,protein_g').gte('date', from).order('date'))])
+    return { acts, well, planned, sets, settings, events, meals }
   }, [days])
   useSynced(reload)
 
@@ -78,9 +81,20 @@ export default function Trends() {
     const gym = [...byDate.values()].sort((a, b) => String(a.date).localeCompare(String(b.date)))
     const liftsSeen = LIFTS.filter(l => gym.some(g => g[l]))
 
+    // calories: only days with food logged count, so a forgotten day doesn't look like a 3,000 kcal deficit
+    const body = { weight: [...data.well].reverse().find(w => w.weight_kg)?.weight_kg ?? 96, height: data.settings.height_cm ?? 182, age: Number(t.slice(0, 4)) - (data.settings.birth_year ?? 1980), factor: data.settings.activity_factor ?? 1.25 }
+    const inBy = new Map<string, { kcal: number; p: number }>()
+    for (const m of data.meals) { const x = inBy.get(m.date) ?? { kcal: 0, p: 0 }; x.kcal += m.kcal; x.p += m.protein_g ?? 0; inBy.set(m.date, x) }
+    const calWeeks = new Map<string, { wk: string; days: number; inK: number; outK: number; protein: number }>()
+    for (const [d, x] of inBy) {
+      const k = monday(d); const w = calWeeks.get(k) ?? { wk: k, days: 0, inK: 0, outK: 0, protein: 0 }
+      w.days++; w.inK += x.kcal; w.protein += x.p; w.outK += kcalOut(data.acts.filter(a => a.date === d), body).total; calWeeks.set(k, w)
+    }
+    const cal = [...calWeeks.values()].sort((a, b) => a.wk.localeCompare(b.wk)).map(w => ({ wk: w.wk, days: w.days, in: Math.round(w.inK / w.days), out: Math.round(w.outK / w.days), net: Math.round((w.inK - w.outK) / w.days), protein: Math.round(w.protein / w.days), kgWeek: +(((w.inK - w.outK) / w.days) * 7 / KCAL_PER_KG).toFixed(2) }))
+
     // FTP as intervals.icu saw it on each ride
     const ftp = data.acts.filter(a => a.date >= from && a.sport === 'ride' && a.ftp).map(a => ({ date: a.date, ftp: a.ftp }))
-    return { pm, atRace, nowP, ramp, wk, well, lastKg, lastWaist, easyRuns, easyRides, zones, gym, liftsSeen, ftp, race }
+    return { cal, pm, atRace, nowP, ramp, wk, well, lastKg, lastWaist, easyRuns, easyRides, zones, gym, liftsSeen, ftp, race }
   }, [data, from, t, warm])
 
   if (!data || !v) return <p className="text-muted py-10 text-center animate-pulse">Loading…</p>
@@ -104,6 +118,7 @@ export default function Trends() {
     zones: { key: 'run-intensity', title: 'Run intensity (80/20)', range, about: 'Share of weekly running time in HR zones: easy Z1–2, moderate Z3, hard Z4–5. Target ~80% easy.', data: v.zones },
     gym: { key: 'leg-strength', title: 'Leg strength', range, about: 'Best estimated one-rep max (Epley, from logged kg × reps) per session for the main leg lifts.', data: v.gym },
     compliance: { key: 'compliance', title: 'Plan compliance', range, about: 'Share of planned (non-rest) sessions done each week.', data: v.wk.filter(w => w.pct != null).map(w => ({ wk: w.wk, pct: w.pct })) },
+    calories: { key: 'calories', title: 'Calories in and out', range, about: 'Weekly averages per logged day: kcal eaten (meals read from photos/dictation, reviewed by Herman) vs kcal out (resting burn × non-exercise factor + Garmin session calories), net, protein, and the weight change that net implies (7,700 kcal ≈ 1 kg). Compare with the actual weight trend.', data: { weeks: v.cal, weight: v.well.filter(w => w.kg7).map(w => ({ d: w.date, kg7: w.kg7 })) } },
     ftp: { key: 'ftp', title: 'FTP', range, about: `FTP as intervals.icu applied it per ride; working value ${data.settings.ftp_w ?? 310} W.`, data: v.ftp },
   }
 
@@ -223,6 +238,21 @@ export default function Trends() {
             </ResponsiveContainer>) : <Empty>Measure weekly at the navel, same time of day, and log it in the check-in.</Empty>}
         </Card>
       </div>
+
+      <Card ai={AI.calories} title="Calories in and out" sub="Average per logged day, by week. Out = resting burn + Garmin session calories. Days without food logged are left out.">
+        {v.cal.length ? <>
+          <Legend items={[{ label: 'In (eaten)', color: 'var(--s4)', box: true }, { label: 'Out (burned)', color: 'var(--s2)' }]} />
+          <ResponsiveContainer width="100%" height={H}>
+            <ComposedChart data={v.cal} margin={{ top: 5, right: 5, left: -10, bottom: 0 }}>
+              <CartesianGrid {...GRID} /><XAxis dataKey="wk" {...AXIS} tickFormatter={tick} minTickGap={30} /><YAxis {...AXIS} />
+              <Tooltip content={<Tip labelFormat={l => `Week of ${tick(l)}`} fmt={x => `${num(x)} kcal`} />} />
+              <Bar dataKey="in" name="In" fill="var(--s4)" radius={[4, 4, 0, 0]} />
+              <Line dataKey="out" name="Out" stroke="var(--s2)" strokeWidth={2} dot={{ r: 3 }} />
+            </ComposedChart>
+          </ResponsiveContainer>
+          {(() => { const last = v.cal[v.cal.length - 1]; return <p className="text-xs text-muted mt-1 num">Week of {tick(last.wk)}: {last.days} days logged · net {last.net > 0 ? '+' : ''}{num(last.net)} kcal/day ≈ {last.kgWeek > 0 ? '+' : ''}{last.kgWeek} kg/week · protein {num(last.protein)} g/day</p> })()}
+        </> : <Empty>Log meals on the Today screen and the weekly balance shows here.</Empty>}
+      </Card>
 
       <div className="grid md:grid-cols-2 gap-4">
         <Card ai={AI.runEff} title="Easy-run efficiency" sub="Metres per minute per heartbeat on easy runs (higher = fitter at the same effort). Uses grade-adjusted pace where Garmin has it.">

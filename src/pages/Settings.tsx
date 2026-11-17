@@ -31,7 +31,7 @@ export default function Settings() {
   async function save() {
     setBusy(true)
     const n = (v: unknown) => (v === '' || v == null ? null : Number(v))
-    const { error } = await supabase.from('tr_settings').update({ height_cm: n(f.height_cm), ftp_w: n(f.ftp_w), max_hr: n(f.max_hr), run_max_hr: n(f.run_max_hr), easy_run_hr_cap: n(f.easy_run_hr_cap), goal_weight_kg: n(f.goal_weight_kg), coach_auto: f.coach_auto, coach_model: f.coach_model, notes: f.notes || null, updated_at: new Date().toISOString() }).eq('id', 1)
+    const { error } = await supabase.from('tr_settings').update({ height_cm: n(f.height_cm), ftp_w: n(f.ftp_w), max_hr: n(f.max_hr), run_max_hr: n(f.run_max_hr), easy_run_hr_cap: n(f.easy_run_hr_cap), goal_weight_kg: n(f.goal_weight_kg), birth_year: n(f.birth_year), activity_factor: n(f.activity_factor), kcal_deficit: n(f.kcal_deficit), coach_auto: f.coach_auto, coach_model: f.coach_model, notes: f.notes || null, updated_at: new Date().toISOString() }).eq('id', 1)
     setMsg(error ? error.message : 'Saved'); setBusy(false); void reload()
   }
   const num = (k: keyof S, label: string, hint?: string) => (
@@ -66,6 +66,9 @@ export default function Settings() {
           {num('max_hr', 'Max HR (bike)')}
           {num('run_max_hr', 'Max HR (run)', 'once known')}
           {num('easy_run_hr_cap', 'Easy-run HR cap', 'until the 10 km TT')}
+          {num('birth_year', 'Birth year', 'for resting burn')}
+          {num('activity_factor', 'Non-exercise factor', '1.2 desk · 1.35 on your feet')}
+          {num('kcal_deficit', 'Daily deficit kcal', 'target = out − this')}
         </div>
         <label className="block mt-3"><span className="label">Notes for the coach</span><textarea className="input mt-1" rows={3} value={f.notes ?? ''} onChange={e => setF({ ...f, notes: e.target.value })} placeholder="e.g. Away 3–7 Dec, gym closed on Sundays, prefer long runs Saturday" /></label>
       </Card>

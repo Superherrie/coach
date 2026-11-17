@@ -97,7 +97,7 @@ Deno.serve(async (req) => {
         avg_watts: a.icu_average_watts ?? null, np_watts: a.icu_weighted_avg_watts ?? null, ftp: a.icu_ftp ?? null,
         avg_pace_s: pace ? Math.round(pace) : null, gap_pace_s: gap ? Math.round(gap) : null,
         load: a.icu_training_load ?? null, intensity: a.icu_intensity ?? null, ef: a.icu_efficiency_factor ?? null,
-        decoupling: a.decoupling ?? null, rpe: prev?.rpe ?? a.icu_rpe ?? null, feel: a.feel ?? null, hr_zone_s: zones,
+        decoupling: a.decoupling ?? null, calories: a.calories ?? null, rpe: prev?.rpe ?? a.icu_rpe ?? null, feel: a.feel ?? null, hr_zone_s: zones,
         notes: prev?.notes ?? null, planned_id: prev?.planned_id ?? null,
         raw: { type: a.type, device: a.device_name, source: a.source, lap_count: a.icu_lap_count, kg_lifted: a.kg_lifted, polarization: a.polarization_index },
         updated_at: new Date().toISOString(),

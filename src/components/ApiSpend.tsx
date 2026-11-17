@@ -23,7 +23,7 @@ export function costUsd(model: string | null, u: Usage | null) {
   const w5m = u.cache_creation?.ephemeral_5m_input_tokens ?? Math.max(0, (u.cache_creation_input_tokens ?? 0) - w1h)
   return ((u.input_tokens ?? 0) * p.in + (u.output_tokens ?? 0) * p.out + (u.cache_read_input_tokens ?? 0) * p.read + w1h * p.in * 2 + w5m * p.in * 1.25) / 1e6
 }
-const kindLabel = (k: string) => (k === 'daily' ? 'Daily reviews' : k === 'chat' ? 'Coach chat' : k.startsWith('insight') ? 'Chart insights' : k)
+const kindLabel = (k: string) => (k === 'daily' ? 'Daily reviews' : k === 'chat' ? 'Coach chat' : k.startsWith('insight') ? 'Chart insights' : k === 'meal' ? 'Meal reading' : k)
 
 export default function ApiSpend() {
   const { data, reload } = useLoad(async () => {

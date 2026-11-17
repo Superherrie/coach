@@ -20,6 +20,9 @@ const PATHS: Record<string, string> = {
   edit: 'M4 20h4L19 9l-4-4L4 16zM13 7l4 4', trash: 'M5 7h14M10 11v6m4-6v6M6 7l1 13h10l1-13M9 7V4h6v3',
   out: 'M15 4h4a1 1 0 011 1v14a1 1 0 01-1 1h-4M10 8l-4 4 4 4m-4-4h11',
   send: 'M4 12l16-8-6 16-2-7z', lock: 'M6 11h12v9H6zM8 11V8a4 4 0 018 0v3',
+  camera: 'M4 8h3l2-3h6l2 3h3a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V9a1 1 0 011-1zm8 3a3.5 3.5 0 100 7 3.5 3.5 0 000-7z',
+  mic: 'M12 3a3 3 0 00-3 3v6a3 3 0 006 0V6a3 3 0 00-3-3zM5 11a7 7 0 0014 0M12 18v3',
+  food: 'M7 3v8a2 2 0 002 2v8M5 3v5M9 3v5M17 3c-2 0-3 3-3 6s1 4 3 4v8',
 }
 
 export default function Icon({ name, size = 20, className }: { name: string; size?: number; className?: string }) {

@@ -4,6 +4,7 @@ import Icon from '../components/Icon'
 import { Card, Scale, Stat } from '../components/ui'
 import { LogSheet, PlanSheet, SessionCard } from '../components/Session'
 import Proposals from '../components/Proposals'
+import { FoodCard } from '../components/Food'
 import { getActs, getEvents, getLastRun, getPending, getPhases, getPlanned, getSets, getSettings, getWellness, useLoad } from '../lib/data'
 import { addDays, daysBetween, dmy, num, stamp, today, weekday } from '../lib/format'
 import { pmc, readiness } from '../lib/load'
@@ -86,6 +87,13 @@ export default function Today() {
       ) })}
 
       <CheckIn day={day} w={w} onSaved={() => void reload()} height={data.settings.height_cm} />
+
+      <FoodCard day={day} acts={dayActs} deficit={data.settings.kcal_deficit ?? 500} body={{
+        weight: [...data.well].reverse().find(x => x.weight_kg)?.weight_kg ?? 96,
+        height: data.settings.height_cm ?? 182,
+        age: new Date(day).getFullYear() - (data.settings.birth_year ?? 1980),
+        factor: data.settings.activity_factor ?? 1.25,
+      }} />
 
       {next && <p className="text-xs text-muted text-center">Next: <span className="font-medium text-ink">{next.name}</span> · {dmy(next.date)} · {daysBetween(day, next.date)} days</p>}
 

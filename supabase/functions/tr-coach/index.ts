@@ -24,6 +24,7 @@ ATHLETE
 - Known patterns: escalation (goes out too hard, fades late) — largely fixed in training, keep naming it; watt-creep on easy days; Saturday creep (cap Saturday at 75 min when a long session follows Sunday); forgets the lap button on structured sessions.
 - Health: right medial ankle niggle since Aug 2026 (posterior tibial / pronation), self-managed with calf and mobility work. Do not suggest a physio unless it flares. Plan rule: ankle pain above 3/10 during or after a run → back off running for a week (bike instead).
 - Weight: steady loss toward 85–91 kg; no aggressive cutting in heavy blocks; no diet plans unless asked.
+- Food log (from 18 Nov 2026): Herman logs meals (estimated by Claude from photos or dictation, reviewed by him). "food_last_14_days" gives kcal in per logged day; kcal out is resting burn × factor + session calories. Use it to (a) flag under-fuelling around hard or long sessions (a big deficit the day before a long run or quality day hurts the session), (b) keep the deficit moderate — about 300–500 kcal/day on easy days, near zero on long-run and quality days, (c) check that protein is around 1.6 g/kg while lifting heavy. Estimates are ±15–20%, and unlogged days are not zero days. One concrete lever beats a plan.
 
 GOAL — Comrades Down Run, Sun 13 June 2027, ~91 km Pietermaritzburg → Durban, sub-9 (Bill Rowan): ~5:56/km average, first ~50 km ≈ 4:55, last ~40 km ≈ 4:05. In 2022 the last 15 km fell to 6:30–7:30/km with HR 120–130: the legs failed (quad durability on downhills), not the engine. Levers: downhill durability, pacing discipline over the first 30 km, body weight.
 
@@ -116,17 +117,26 @@ Deno.serve(async (req) => {
 
     const today = sastToday();
     const from = addDays(today, -28), to = addDays(today, 21), loadFrom = addDays(today, -120);
-    const [settings, phases, events, planned, acts, well, sets, pending, chat] = await Promise.all([
-      admin.from("tr_settings").select("height_cm,ftp_w,max_hr,run_max_hr,easy_run_hr_cap,goal_weight_kg,coach_auto,coach_model,notes").eq("id", 1).single(),
+    const [settings, phases, events, planned, acts, well, sets, pending, chat, meals] = await Promise.all([
+      admin.from("tr_settings").select("height_cm,ftp_w,max_hr,run_max_hr,easy_run_hr_cap,goal_weight_kg,coach_auto,coach_model,notes,birth_year,activity_factor,kcal_deficit").eq("id", 1).single(),
       admin.from("tr_phases").select("name,start_date,end_date,focus,run_km_from,run_km_to,long_run_from,long_run_to,leg_sessions,key_sessions,strength_emphasis").order("start_date"),
       admin.from("tr_events").select("date,name,kind,distance_km,purpose,target,on_track,borderline,rethink,result").order("date"),
       admin.from("tr_planned").select("id,date,slot,sport,title,description,duration_min,distance_km,intensity,targets,planned_load,status,locked,source,change_note").gte("date", from).lte("date", to).order("date"),
-      admin.from("tr_activities").select("date,slot,sport,name,duration_s,distance_m,elev_m,avg_hr,max_hr,avg_watts,np_watts,avg_pace_s,gap_pace_s,load,ef,decoupling,rpe,notes,planned_id,trainer").gte("date", loadFrom).order("date"),
+      admin.from("tr_activities").select("date,slot,sport,name,duration_s,distance_m,elev_m,avg_hr,max_hr,avg_watts,np_watts,avg_pace_s,gap_pace_s,load,ef,decoupling,rpe,notes,planned_id,trainer,calories").gte("date", loadFrom).order("date"),
       admin.from("tr_wellness").select("date,resting_hr,hrv,sleep_h,weight_kg,waist_cm,legs,energy,ankle_pain,notes").gte("date", addDays(today, -42)).order("date"),
       admin.from("tr_gym_sets").select("date,exercise,set_no,reps,kg").gte("date", addDays(today, -35)).order("date"),
       admin.from("tr_proposals").select("id,created_at,title,why,changes").eq("status", "pending"),
       mode === "chat" ? admin.from("tr_chat").select("role,content,created_at").order("created_at", { ascending: false }).limit(12) : Promise.resolve({ data: [] }),
+      admin.from("tr_meals").select("date,meal,description,kcal,protein_g,carbs_g,fat_g").gte("date", addDays(today, -14)).order("date"),
     ]);
+    // food per day, with Garmin session calories alongside for the balance
+    const foodDays = new Map<string, { kcal: number; protein_g: number; carbs_g: number; meals: string[] }>();
+    for (const m of meals.data ?? []) {
+      const f = foodDays.get(m.date) ?? { kcal: 0, protein_g: 0, carbs_g: 0, meals: [] };
+      f.kcal += m.kcal; f.protein_g += Number(m.protein_g ?? 0); f.carbs_g += Number(m.carbs_g ?? 0); f.meals.push(`${m.meal}: ${m.description} (${m.kcal})`); foodDays.set(m.date, f);
+    }
+    const sessionKcal = (d: string) => (acts.data ?? []).filter((a) => a.date === d).reduce((s, a) => s + Number((a as { calories?: number }).calories ?? 0), 0);
+    const food = [...foodDays.entries()].map(([date, f]) => ({ date, kcal_in: Math.round(f.kcal), protein_g: Math.round(f.protein_g), carbs_g: Math.round(f.carbs_g), garmin_session_kcal: sessionKcal(date), meals: f.meals }));
 
     // daily load → fitness / fatigue / form
     const byDay = new Map<string, number>();
@@ -150,6 +160,7 @@ Deno.serve(async (req) => {
       actuals_last_28_days: recentActs,
       wellness_last_42_days: well.data,
       gym_sets_last_35_days: sets.data,
+      food_last_14_days: food,
       load_last_28_days: pmc.slice(-28),
       pending_proposals: pending.data,
     };

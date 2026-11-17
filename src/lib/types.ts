@@ -16,7 +16,7 @@ export interface Activity {
   name: string | null; trainer: boolean | null; duration_s: number | null; distance_m: number | null; elev_m: number | null
   avg_hr: number | null; max_hr: number | null; avg_watts: number | null; np_watts: number | null; ftp: number | null
   avg_pace_s: number | null; gap_pace_s: number | null; load: number | null; intensity: number | null; ef: number | null
-  decoupling: number | null; rpe: number | null; feel: number | null; hr_zone_s: number[] | null; notes: string | null
+  decoupling: number | null; calories?: number | null; rpe: number | null; feel: number | null; hr_zone_s: number[] | null; notes: string | null
   planned_id: number | null
 }
 
@@ -32,6 +32,7 @@ export interface Wellness {
 export interface Settings {
   id: 1; icu_athlete_id: string | null; icu_connected_at: string | null; height_cm: number | null; ftp_w: number | null; max_hr: number | null
   run_max_hr: number | null; easy_run_hr_cap: number | null; goal_weight_kg: number | null; coach_auto: boolean; coach_model: string; notes: string | null
+  birth_year: number | null; activity_factor: number | null; kcal_deficit: number | null
 }
 
 export interface Phase { id: number; name: string; start_date: string; end_date: string; focus: string | null; run_km_from: number | null; run_km_to: number | null; long_run_from: number | null; long_run_to: number | null; leg_sessions: string | null; key_sessions: string | null; strength_emphasis: string | null }
