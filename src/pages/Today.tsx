@@ -29,6 +29,9 @@ export default function Today() {
   const [log, setLog] = useState<{ slot: Slot; planned?: Planned; act?: Activity }>()
   const [edit, setEdit] = useState<Planned>()
   useEffect(() => { if (params.get('log')) { setLog({ slot: new Date().getHours() < 12 ? 'am' : 'pm' }); setParams({}, { replace: true }) } }, [params, setParams])
+  // the "Meal" shortcut in the top bar lands here: jump to today and open Add a meal
+  const [mealReq, setMealReq] = useState(0)
+  useEffect(() => { if (params.get('meal')) { setDay(today()); setMealReq(n => n + 1); setParams({}, { replace: true }) } }, [params, setParams])
 
   const stats = useMemo(() => {
     if (!data) return null
@@ -88,7 +91,7 @@ export default function Today() {
 
       <CheckIn day={day} w={w} onSaved={() => void reload()} height={data.settings.height_cm} />
 
-      <FoodCard day={day} acts={dayActs} deficit={data.settings.kcal_deficit ?? 500} body={{
+      <FoodCard day={day} acts={dayActs} openReq={mealReq} deficit={data.settings.kcal_deficit ?? 500} body={{
         weight: [...data.well].reverse().find(x => x.weight_kg)?.weight_kg ?? 96,
         height: data.settings.height_cm ?? 182,
         age: new Date(day).getFullYear() - (data.settings.birth_year ?? 1980),

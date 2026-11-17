@@ -58,7 +58,8 @@ export default function Layout() {
             </NavLink>
           ))}
         </nav>
-        <button className="btn btn-ember w-full mb-4" onClick={() => nav('/?log=1')}><Icon name="plus" />Log a session</button>
+        <button className="btn btn-ember w-full mb-2" onClick={() => nav('/?log=1')}><Icon name="plus" />Log a session</button>
+        <button className="btn w-full mb-4 bg-white/10 text-white" onClick={() => nav('/?meal=1')}><Icon name="food" />Add a meal</button>
         <SyncButton dark />
         <div className="flex items-center justify-between text-xs text-white/60 mt-3">
           <span>{member?.display_name}</span>
@@ -70,6 +71,7 @@ export default function Layout() {
         <header className="md:hidden sticky top-0 z-20 flex items-center gap-2 px-4 pt-[max(env(safe-area-inset-top),0.6rem)] pb-2 bg-bg/90 backdrop-blur">
           <Logo size={26} /><span className="display text-xl">Coach</span>
           <span className="ml-auto flex items-center gap-1"><SyncButton />
+            <button onClick={() => nav('/?meal=1')} aria-label="Add a meal" className="flex items-center gap-1 rounded-full bg-ember text-white pl-2 pr-2.5 py-1 text-xs font-semibold active:scale-95"><Icon name="food" size={15} />Meal</button>
             <NavLink to="/settings" aria-label="Settings" className="p-1.5 text-muted"><Icon name="settings" size={19} /></NavLink></span>
         </header>
         <div className="mx-auto max-w-5xl px-4 md:px-8 md:pt-8"><Outlet /></div>

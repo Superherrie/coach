@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Icon from './Icon'
 import { Card, Empty, Sheet } from './ui'
 import { callFn, useLoad } from '../lib/data'
@@ -14,9 +14,10 @@ const MEALS = ['breakfast', 'lunch', 'dinner', 'snack', 'drink'] as const
 const guessMeal = () => { const h = new Date().getHours(); return h < 10 ? 'breakfast' : h < 15 ? 'lunch' : h < 17 ? 'snack' : 'dinner' }
 
 /** Today's food: in vs out, the target, and the meals with an Add button (photo or words). */
-export function FoodCard({ day, acts, body, deficit }: { day: string; acts: Activity[]; body: Body; deficit: number }) {
+export function FoodCard({ day, acts, body, deficit, openReq = 0 }: { day: string; acts: Activity[]; body: Body; deficit: number; openReq?: number }) {
   const { data: meals, reload } = useLoad(async () => (await supabase.from('tr_meals').select('*').eq('date', day).order('eaten_at', { nullsFirst: false }).order('created_at')).data as Meal[] ?? [], [day])
   const [add, setAdd] = useState(false); const [edit, setEdit] = useState<Meal>()
+  useEffect(() => { if (openReq > 0) setAdd(true) }, [openReq])   // top-bar "Meal" shortcut
   const out = useMemo(() => kcalOut(acts, body), [acts, body])
   const inK = (meals ?? []).reduce((s, m) => s + m.kcal, 0)
   const target = out.total - deficit
