@@ -98,11 +98,14 @@ export default function Trends() {
     const cal = [...calWeeks.values()].sort((a, b) => a.wk.localeCompare(b.wk)).map(w => ({ wk: w.wk, days: w.days, in: Math.round(w.inK / w.days), out: Math.round(w.outK / w.days), net: Math.round((w.inK - w.outK) / w.days), protein: Math.round(w.protein / w.days), kgWeek: +(((w.inK - w.outK) / w.days) * 7 / KCAL_PER_KG).toFixed(2) }))
 
     // body fat: tape (Navy) on every day with a waist reading, carrying the last neck; photo reads as points with their range
-    let lastNeck: number | null = null
+    // waist and neck are rarely measured on the same day: carry the last of each forward, plot on days either was logged
+    let lastNeck: number | null = null, lastWaistCm: number | null = null
     const bfMap = new Map<string, { date: string; tape: number | null; photo: number | null; lo: number | null; hi: number | null; inbody?: number | null }>()
     for (const w of data.well) {
       if (w.neck_cm) lastNeck = w.neck_cm
-      const t = navyBf(w.waist_cm, lastNeck, data.settings.height_cm)
+      if (w.waist_cm) lastWaistCm = w.waist_cm
+      if (!w.neck_cm && !w.waist_cm) continue
+      const t = navyBf(lastWaistCm, lastNeck, data.settings.height_cm)
       if (t != null) bfMap.set(w.date, { date: w.date, tape: t, photo: null, lo: null, hi: null })
     }
     for (const p of data.photos) if (p.ai?.usable) { const r = bfMap.get(p.date) ?? { date: p.date, tape: null, photo: null, lo: null, hi: null }; r.photo = p.ai.bf_best; r.lo = p.ai.bf_low; r.hi = p.ai.bf_high; bfMap.set(p.date, r) }

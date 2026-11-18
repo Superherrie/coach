@@ -144,12 +144,14 @@ Deno.serve(async (req) => {
     const { data: scans } = await admin.from("tr_inbody").select("date,weight_kg,smm_kg,bfm_kg,pbf,ffm_kg,ecw_ratio,visceral_level,bmr_kcal,segments").eq("user_id", uid).gte("date", addDays(today, -365)).order("date");
     const profile = profileOf(settings.data?.coach_profile);
     const h = Number(settings.data?.height_cm ?? 0);
-    let neck: number | null = null;
+    let neck: number | null = null, waist: number | null = null;
     const tape = (bodyRows ?? []).flatMap((r) => {
       if (r.neck_cm) neck = Number(r.neck_cm);
-      if (!r.waist_cm || !neck || !h || Number(r.waist_cm) <= neck) return [];
-      const bf = 495 / (1.0324 - 0.19077 * Math.log10(Number(r.waist_cm) - neck) + 0.15456 * Math.log10(h)) - 450;
-      return [{ date: r.date, waist_cm: r.waist_cm, neck_cm: neck, weight_kg: r.weight_kg, tape_bf: Math.round(bf * 10) / 10 }];
+      if (r.waist_cm) waist = Number(r.waist_cm);
+      if (!r.waist_cm && !r.neck_cm) return [];
+      if (!waist || !neck || !h || waist <= neck) return [];
+      const bf = 495 / (1.0324 - 0.19077 * Math.log10(waist - neck) + 0.15456 * Math.log10(h)) - 450;
+      return [{ date: r.date, waist_cm: waist, neck_cm: neck, weight_kg: r.weight_kg, tape_bf: Math.round(bf * 10) / 10 }];
     });
     const body_composition = {
       tape_estimates: tape.slice(-20),
