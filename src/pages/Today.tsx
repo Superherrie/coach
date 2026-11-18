@@ -142,9 +142,12 @@ function CheckIn({ day, w, onSaved, height, last }: { day: string; w?: Wellness;
   const [f, setF] = useState({ legs: w?.legs ?? null, energy: w?.energy ?? null, ankle_pain: w?.ankle_pain ?? null, weight_kg: w?.weight_kg ? String(w.weight_kg) : '', waist_cm: w?.waist_cm ? String(w.waist_cm) : '', neck_cm: w?.neck_cm ? String(w.neck_cm) : '', resting_hr: '', notes: w?.notes ?? '' })
   const [busy, setBusy] = useState(false); const [saved, setSaved] = useState(false)
   useEffect(() => { setF({ legs: w?.legs ?? null, energy: w?.energy ?? null, ankle_pain: w?.ankle_pain ?? null, weight_kg: w?.weight_kg ? String(w.weight_kg) : '', waist_cm: w?.waist_cm ? String(w.waist_cm) : '', neck_cm: w?.neck_cm ? String(w.neck_cm) : '', resting_hr: '', notes: w?.notes ?? '' }); setSaved(false) }, [w, day])
-  const done = w?.legs != null || w?.ankle_pain != null
+  const done = w?.legs != null || w?.energy != null || w?.ankle_pain != null || Object.keys(w?.manual ?? {}).length > 0
+  const [editing, setEditing] = useState(false)
+  const [err, setErr] = useState<string>()
+  useEffect(() => { setEditing(false); setErr(undefined) }, [day])
   async function save() {
-    setBusy(true)
+    setBusy(true); setErr(undefined)
     const manual = { ...(w?.manual ?? {}) } as Record<string, boolean>
     const row: Record<string, unknown> = { date: day, legs: f.legs, energy: f.energy, ankle_pain: f.ankle_pain, notes: f.notes || null, updated_at: new Date().toISOString() }
     if (f.weight_kg && +f.weight_kg !== w?.weight_kg) { row.weight_kg = +f.weight_kg; manual.weight_kg = true }
@@ -153,14 +156,33 @@ function CheckIn({ day, w, onSaved, height, last }: { day: string; w?: Wellness;
     if (f.resting_hr) { row.resting_hr = +f.resting_hr; manual.resting_hr = true }
     row.manual = manual
     row.user_id = await myId()
-    await supabase.from('tr_wellness').upsert(row, { onConflict: 'user_id,date' })
-    setBusy(false); setSaved(true); onSaved()
+    const { error } = await supabase.from('tr_wellness').upsert(row, { onConflict: 'user_id,date' })
+    setBusy(false)
+    if (error) { setErr(`Not saved: ${error.message}`); return }
+    setSaved(true); setEditing(false); onSaved()
+  }
+  // saved for this day: greyed, read-only summary with an Edit button
+  if (done && !editing) {
+    const bits = [
+      w?.legs != null && `Legs ${w.legs}/5`, w?.energy != null && `Energy ${w.energy}/5`, w?.ankle_pain != null && `Ankle ${w.ankle_pain}/10`,
+      w?.weight_kg && `${w.weight_kg} kg`, w?.waist_cm && `waist ${w.waist_cm}`, w?.neck_cm && `neck ${w.neck_cm}`, w?.manual?.resting_hr && w?.resting_hr && `rest HR ${w.resting_hr}`,
+    ].filter(Boolean)
+    return (
+      <Card title={<span className="flex items-center gap-2 text-muted"><Icon name="check" size={18} className="text-good" />Check-in saved</span>}
+        right={<button className="chip" onClick={() => setEditing(true)}>Edit</button>}>
+        <div className="opacity-60">
+          <p className="text-sm num">{bits.join(' · ') || 'Saved'}</p>
+          {w?.notes && <p className="text-xs text-muted mt-1">{w.notes}</p>}
+        </div>
+      </Card>
+    )
   }
   const whtr = f.waist_cm && height ? +f.waist_cm / height : null
   // tape estimate uses today's numbers, or the last ones measured (neck barely changes week to week)
   const bf = navyBf(+f.waist_cm || last.waist, +f.neck_cm || last.neck, height)
   return (
-    <Card title="Check-in" sub={done ? 'Saved — change anything and save again' : '20 seconds. Garmin fills resting HR, HRV and sleep.'}>
+    <Card title="Check-in" sub={done ? 'Editing today’s check-in' : '20 seconds. Garmin fills resting HR, HRV and sleep.'}
+      right={done ? <button className="chip" onClick={() => setEditing(false)}>Cancel</button> : undefined}>
       <div className="space-y-3">
         <div><p className="label mb-1">Legs</p><Scale value={f.legs} onChange={v => setF({ ...f, legs: v })} min={1} max={5} labels={['fresh', 'very sore']} /></div>
         <div><p className="label mb-1">Energy</p><Scale value={f.energy} onChange={v => setF({ ...f, energy: v })} min={1} max={5} labels={['flat', 'great']} /></div>
@@ -178,6 +200,7 @@ function CheckIn({ day, w, onSaved, height, last }: { day: string; w?: Wellness;
         </p>}
         <p className="text-[11px] text-muted -mt-1">Waist at the navel and neck just below the Adam's apple, relaxed, same time of day. <Link to="/body" className="text-brand underline">Progress photos →</Link></p>
         <input className="input" placeholder="Anything else? (sick, travel, stress…)" value={f.notes} onChange={e => setF({ ...f, notes: e.target.value })} />
+        {err && <p className="text-sm text-bad">{err}</p>}
         <button className="btn btn-primary w-full" disabled={busy} onClick={() => void save()}>{busy ? 'Saving…' : saved ? 'Saved ✓' : 'Save check-in'}</button>
       </div>
     </Card>
