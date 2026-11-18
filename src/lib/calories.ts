@@ -1,12 +1,24 @@
 // Calories out = resting burn × non-exercise factor + what each session burns on top.
-// Resting burn: Mifflin–St Jeor (male) from the latest weight, height and age.
+// Resting burn: Mifflin–St Jeor (by sex) from the latest weight, height and age.
 // Session burn: Garmin's figure where it exists (minus the resting burn it already includes),
 // otherwise ride kJ ≈ kcal, run ≈ 1 kcal per kg per km, gym ≈ 6 kcal/min, other ≈ 4 kcal/min.
-import type { Activity } from './types'
+import type { Activity, Settings, Wellness } from './types'
 
-export interface Body { weight: number; height: number; age: number; factor: number }
+export interface Body { weight: number; height: number; age: number; factor: number; female?: boolean; weightFrom?: 'weigh-in' | 'goal' | 'guess' }
 
-export const bmr = (b: Body) => Math.round(10 * b.weight + 6.25 * b.height - 5 * b.age + 5)
+export const bmr = (b: Body) => Math.round(10 * b.weight + 6.25 * b.height - 5 * b.age + (b.female ? -161 : 5))
+
+/** the signed-in athlete's body for calorie maths: latest weigh-in, else their goal weight (flagged), never someone else's numbers */
+export function bodyFrom(s: Settings, well: Wellness[], day: string): Body {
+  const female = s.sex === 'female'
+  const kg = [...well].reverse().find(w => w.weight_kg && w.date <= day)?.weight_kg
+  const goal = s.goal_weight_kg ? Number(s.goal_weight_kg) : null
+  return {
+    weight: Number(kg ?? goal ?? (female ? 68 : 82)), weightFrom: kg ? 'weigh-in' : goal ? 'goal' : 'guess',
+    height: Number(s.height_cm ?? (female ? 168 : 178)), age: Number(day.slice(0, 4)) - (s.birth_year ?? 1985),
+    factor: Number(s.activity_factor ?? 1.25), female,
+  }
+}
 
 export function sessionKcal(a: Activity, b: Body) {
   const min = (a.duration_s ?? 0) / 60

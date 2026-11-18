@@ -3,7 +3,7 @@ import { Area, Bar, BarChart, CartesianGrid, ComposedChart, Line, LineChart, Ref
 import { AXIS, Card, Empty, GRID, Legend, Stat, Tip } from '../components/ui'
 import { fetchAll, getActs, getEvents, getPlanned, getSets, getSettings, getWellness, useLoad } from '../lib/data'
 import { supabase } from '../lib/supabase'
-import { kcalOut, KCAL_PER_KG } from '../lib/calories'
+import { bodyFrom, kcalOut, KCAL_PER_KG } from '../lib/calories'
 import { navyBf } from '../lib/body'
 import { Link } from 'react-router-dom'
 import Icon from '../components/Icon'
@@ -86,7 +86,7 @@ export default function Trends() {
     const liftsSeen = LIFTS.filter(l => gym.some(g => g[l]))
 
     // calories: only days with food logged count, so a forgotten day doesn't look like a 3,000 kcal deficit
-    const body = { weight: [...data.well].reverse().find(w => w.weight_kg)?.weight_kg ?? 96, height: data.settings.height_cm ?? 182, age: Number(t.slice(0, 4)) - (data.settings.birth_year ?? 1980), factor: data.settings.activity_factor ?? 1.25 }
+    const body = bodyFrom(data.settings, data.well, t)
     const inBy = new Map<string, { kcal: number; p: number }>()
     for (const m of data.meals) { const x = inBy.get(m.date) ?? { kcal: 0, p: 0 }; x.kcal += m.kcal; x.p += m.protein_g ?? 0; inBy.set(m.date, x) }
     const calWeeks = new Map<string, { wk: string; days: number; inK: number; outK: number; protein: number }>()

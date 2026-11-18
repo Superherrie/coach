@@ -27,6 +27,7 @@ export function FoodCard({ day, acts, body, deficit, openReq = 0 }: { day: strin
   return (
     <Card title="Food" sub={`Out ${num(out.total)} kcal = resting ${num(out.base)} + training ${num(out.training)} · target ${num(target)} (${deficit} below)`}
       right={<button className="btn btn-primary !py-1.5 text-sm" onClick={() => setAdd(true)}><Icon name="plus" size={15} />Meal</button>}>
+      {body.weightFrom !== 'weigh-in' && <p className="text-xs text-warn mb-2">Using {body.weightFrom === 'goal' ? `your goal weight (${body.weight} kg)` : `a guess of ${body.weight} kg`} — log today’s weight in the check-in above for a correct target.</p>}
       <div className="flex items-baseline justify-between text-sm mb-1">
         <span><b className="display text-2xl num">{num(inK)}</b> <span className="text-muted">kcal in</span></span>
         <span className={left < 0 ? 'text-bad font-medium' : 'text-muted'}>{left >= 0 ? `${num(left)} left to target` : `${num(-left)} over target`}</span>

@@ -12,6 +12,7 @@ import { addDays, daysBetween, dmy, num, stamp, today, weekday } from '../lib/fo
 import { pmc, readiness } from '../lib/load'
 import { supabase } from '../lib/supabase'
 import type { Activity, Planned, Slot, Wellness } from '../lib/types'
+import { bodyFrom } from '../lib/calories'
 
 // eslint-disable-next-line react-refresh/only-export-components
 export function useSynced(reload: () => unknown) {
@@ -103,12 +104,7 @@ export default function Today() {
       <CheckIn day={day} w={w} onSaved={() => void reload()} height={data.settings.height_cm}
         last={{ waist: [...data.well].reverse().find(x => x.waist_cm)?.waist_cm ?? null, neck: [...data.well].reverse().find(x => x.neck_cm)?.neck_cm ?? null }} />
 
-      <FoodCard day={day} acts={dayActs} openReq={mealReq} deficit={data.settings.kcal_deficit ?? 500} body={{
-        weight: [...data.well].reverse().find(x => x.weight_kg)?.weight_kg ?? 96,
-        height: data.settings.height_cm ?? 182,
-        age: new Date(day).getFullYear() - (data.settings.birth_year ?? 1980),
-        factor: data.settings.activity_factor ?? 1.25,
-      }} />
+      <FoodCard day={day} acts={dayActs} openReq={mealReq} deficit={data.settings.kcal_deficit ?? 500} body={bodyFrom(data.settings, data.well, day)} />
 
       {next && <p className="text-xs text-muted text-center">Next: <span className="font-medium text-ink">{next.name}</span> · {dmy(next.date)} · {daysBetween(day, next.date)} days</p>}
 
