@@ -7,7 +7,7 @@ import { Card, Scale, Stat } from '../components/ui'
 import { LogSheet, PlanSheet, SessionCard } from '../components/Session'
 import Proposals from '../components/Proposals'
 import { FoodCard } from '../components/Food'
-import { myId, getActs, getEvents, getLastRun, getPending, getPhases, getPlanned, getSets, getSettings, getWellness, useLoad } from '../lib/data'
+import { callFn, myId, getActs, getEvents, getLastRun, getPending, getPhases, getPlanned, getSets, getSettings, getWellness, useLoad } from '../lib/data'
 import { addDays, daysBetween, dmy, num, stamp, today, weekday } from '../lib/format'
 import { pmc, readiness } from '../lib/load'
 import { supabase } from '../lib/supabase'
@@ -33,6 +33,26 @@ export default function Today() {
     return { planned, acts, well, phases, events, pending, run, settings, sets, weekly, reports, scans }
   }, [day])
   useSynced(reload)
+  // on opening/refreshing Today (and after each sync): pull new Garmin data, then ask for a fresh coach review —
+  // the function skips Claude when nothing changed since the last review
+  const [reviewing, setReviewing] = useState(false)
+  useEffect(() => {
+    let alive = true
+    const check = async () => {
+      setReviewing(true)
+      try { const r = await callFn<{ skipped?: string }>('tr-coach', { mode: 'daily', if_changed: true }); if (alive && !r.skipped) void reload() } catch { /* keep the last review */ }
+      if (alive) setReviewing(false)
+    }
+    const onSync = () => void check()
+    window.addEventListener('tr-synced', onSync)
+    void (async () => {
+      let synced = false
+      try { const k = 'tr-autosync'; const t = Number(sessionStorage.getItem(k) ?? 0); if (Date.now() - t > 10 * 60e3) { sessionStorage.setItem(k, String(Date.now())); await callFn('tr-sync', {}); synced = true } } catch { /* offline or sync failed */ }
+      if (!alive) return
+      if (synced) window.dispatchEvent(new Event('tr-synced')); else void check()
+    })()
+    return () => { alive = false; window.removeEventListener('tr-synced', onSync) }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const [log, setLog] = useState<{ slot: Slot; planned?: Planned; act?: Activity }>()
   const [edit, setEdit] = useState<Planned>()
   useEffect(() => { if (params.get('log')) { setLog({ slot: new Date().getHours() < 12 ? 'am' : 'pm' }); setParams({}, { replace: true }) } }, [params, setParams])
@@ -90,7 +110,7 @@ export default function Today() {
         </Card>
       )}
       {isToday && data.run && (
-        <Card title={<span className="flex items-center gap-2"><Icon name="spark" size={18} className="text-ember" />Coach</span>} sub={`Review ${stamp(data.run.created_at)}`}
+        <Card title={<span className="flex items-center gap-2"><Icon name="spark" size={18} className="text-ember" />Coach</span>} sub={reviewing ? 'Checking for new data…' : `Review ${stamp(data.run.created_at)}`}
           right={<button className="chip" onClick={() => nav('/coach')}>Ask <Icon name="right" size={12} /></button>}>
           {data.run.today_note && <p className="font-medium text-sm mb-1.5">{data.run.today_note}</p>}
           <p className="text-sm text-muted whitespace-pre-line">{data.run.summary}</p>

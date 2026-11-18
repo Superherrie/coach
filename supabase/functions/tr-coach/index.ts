@@ -1,5 +1,7 @@
 // tr-coach — Claude reads the plan, what was actually done and the morning check-in, and adjusts the coming days.
 //   POST { mode: 'daily' }                 → reviews and adjusts (the 05:15 schedule runs this after tr-sync)
+//   POST { mode: 'daily', if_changed: true } → same, but returns { skipped } without calling Claude when the athlete's
+//                                             data hasn't changed since the last daily review (the app calls this on refresh)
 //   POST { mode: 'chat', message: '...' }  → answers the signed-in athlete; any plan change comes back as a one-tap proposal
 // Small changes (next 7 days, not the long run, no extra load) apply automatically with a note; bigger ones become proposals.
 // Data sent to Claude comes from intervals.icu (Garmin) and the athlete's own entries — never from Strava.
@@ -235,7 +237,29 @@ ${JSON.stringify(context)}`
       ? `Daily review for ${today}. Compare the last days with the plan, read the wellness trend and the check-in, then adjust the next 14 days only where needed. If nothing needs changing, return no changes.\n\nDATA (JSON):\n${JSON.stringify(context)}`
       : `DATA (JSON):\n${JSON.stringify(context)}\n\nRECENT CHAT (newest first):\n${JSON.stringify(chat.data)}\n\n${who}: ${String(body.message).trim()}`;
 
-    const { data: run } = await admin.from("tr_coach_runs").insert({ user_id: uid, kind: mode }).select("id").single();   // daily | weekly | chat
+    // fingerprint of what the review reads that the athlete or Garmin can change (not the coach's own plan edits, not timestamps)
+    let sig: string | null = null;
+    if (mode === "daily") {
+      const recent = addDays(today, -7);
+      const basis = {
+        today,
+        acts: (acts.data ?? []).filter((a) => a.date >= recent).map((a) => [a.date, a.slot, a.sport, a.duration_s, a.distance_m, a.load, a.rpe, a.notes, a.planned_id]),
+        well: (well.data ?? []).filter((w) => w.date >= addDays(today, -3)),
+        sets: (sets.data ?? []).filter((x) => x.date >= recent).length,
+        mine: (planned.data ?? []).filter((p) => p.source !== "coach" && p.date >= recent).map((p) => [p.id, p.date, p.slot, p.title, p.duration_min, p.distance_km, p.status, p.locked]),
+        pending: (pending.data ?? []).map((p) => p.id),
+        meals: (meals.data ?? []).filter((m) => m.date >= addDays(today, -1)).map((m) => [m.date, m.kcal]),
+      };
+      const h = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(JSON.stringify(basis)));
+      sig = [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, "0")).join("");
+      if (body.if_changed) {
+        const { data: last } = await admin.from("tr_coach_runs").select("created_at,summary,error,input_sig").eq("user_id", uid).eq("kind", "daily").order("created_at", { ascending: false }).limit(1).maybeSingle();
+        if (last && !last.summary && !last.error && Date.now() - Date.parse(last.created_at) < 4 * 60e3) return json({ skipped: "running" });
+        if (last?.summary && last.input_sig === sig) return json({ skipped: "unchanged" });
+      }
+    }
+
+    const { data: run } = await admin.from("tr_coach_runs").insert({ user_id: uid, kind: mode, input_sig: sig }).select("id").single();   // daily | weekly | chat
     runId = run?.id ?? null;
     if (mode === "chat") await admin.from("tr_chat").insert({ user_id: uid, role: "user", content: String(body.message).trim() });
 
