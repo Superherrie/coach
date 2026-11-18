@@ -26,10 +26,11 @@ export default function Today() {
     const [planned, acts, well, phases, events, pending, run, settings, sets, weekly] = await Promise.all([
       getPlanned(day, day), getActs(addDays(day, -120), addDays(day, 0)), getWellness(addDays(day, -35), day), getPhases(), getEvents(), getPending(), getLastRun(), getSettings(), getSets(addDays(day, -120)), getLastRun('weekly'),
     ])
+    const scans = ((await supabase.from('tr_inbody').select('date,bmr_kcal').gte('date', addDays(day, -120)).lte('date', day)).data ?? []) as { date: string; bmr_kcal: number | null }[]
     const dayIds = acts.filter(a => a.date === day).map(a => a.id)
     const { data: reps } = dayIds.length ? await supabase.from('tr_session_reports').select('activity_id,report').in('activity_id', dayIds) : { data: [] }
     const reports = Object.fromEntries((reps ?? []).map(r => [r.activity_id, r.report]))
-    return { planned, acts, well, phases, events, pending, run, settings, sets, weekly, reports }
+    return { planned, acts, well, phases, events, pending, run, settings, sets, weekly, reports, scans }
   }, [day])
   useSynced(reload)
   const [log, setLog] = useState<{ slot: Slot; planned?: Planned; act?: Activity }>()
@@ -104,7 +105,7 @@ export default function Today() {
       <CheckIn day={day} w={w} onSaved={() => void reload()} height={data.settings.height_cm}
         last={{ waist: [...data.well].reverse().find(x => x.waist_cm)?.waist_cm ?? null, neck: [...data.well].reverse().find(x => x.neck_cm)?.neck_cm ?? null }} />
 
-      <FoodCard day={day} acts={dayActs} openReq={mealReq} deficit={data.settings.kcal_deficit ?? 500} body={bodyFrom(data.settings, data.well, day)} />
+      <FoodCard day={day} acts={dayActs} openReq={mealReq} deficit={data.settings.kcal_deficit ?? 500} body={bodyFrom(data.settings, data.well, day, data.scans)} />
 
       {next && <p className="text-xs text-muted text-center">Next: <span className="font-medium text-ink">{next.name}</span> · {dmy(next.date)} · {daysBetween(day, next.date)} days</p>}
 

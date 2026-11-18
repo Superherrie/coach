@@ -7,6 +7,7 @@ import { callFn, getSettings, getWellness, myId, useLoad } from '../lib/data'
 import { addDays, dmy, today } from '../lib/format'
 import { navyBf, split } from '../lib/body'
 import { supabase } from '../lib/supabase'
+import { InBodyCard, type Scan } from '../components/InBody'
 
 interface AI { usable: boolean; bf_low: number; bf_high: number; bf_best: number; confidence: string; changes: string[]; notes: string; compared_to: string | null }
 interface PhotoSet { id: number; date: string; front_path: string | null; side_path: string | null; back_path: string | null; weight_kg: number | null; waist_cm: number | null; neck_cm: number | null; navy_bf: number | null; ai: AI | null; notes: string | null }
@@ -22,14 +23,15 @@ async function signed(paths: (string | null)[]) {
 
 export default function Body() {
   const { data, reload } = useLoad(async () => {
-    const [sets, well, s] = await Promise.all([
+    const [sets, well, s, ib] = await Promise.all([
       supabase.from('tr_body_photos').select('*').order('date', { ascending: false }),
       getWellness(addDays(today(), -60), today()), getSettings(),
+      supabase.from('tr_inbody').select('*').order('date', { ascending: false }).order('id', { ascending: false }),
     ])
     const list = (sets.data ?? []) as PhotoSet[]
     const urls = await signed(list.slice(0, 6).flatMap(x => [x.front_path, x.side_path, x.back_path]))
     const last = <K extends 'weight_kg' | 'waist_cm' | 'neck_cm'>(k: K) => [...well].reverse().find(w => w[k] != null)?.[k] ?? null
-    return { list, urls, height: s.height_cm, weight: last('weight_kg'), waist: last('waist_cm'), neck: last('neck_cm') }
+    return { list, urls, scans: (ib.data ?? []) as Scan[], height: s.height_cm, weight: last('weight_kg'), waist: last('waist_cm'), neck: last('neck_cm') }
   }, [])
   const [add, setAdd] = useState(false); const [compare, setCompare] = useState(false)
   if (!data) return <p className="text-muted py-10 text-center animate-pulse">Loading…</p>
@@ -50,6 +52,8 @@ export default function Body() {
         <div className="rounded-2xl bg-surface-2 px-3 py-2.5"><p className="label">Photo estimate</p><p className="display text-2xl num">{latest?.ai?.usable ? `${latest.ai.bf_low}–${latest.ai.bf_high}%` : '—'}</p><p className="text-[11px] text-muted">{latest ? dmy(latest.date, { year: false }) : 'no photos yet'}</p></div>
         <div className="rounded-2xl bg-surface-2 px-3 py-2.5"><p className="label">Fat / lean</p><p className="display text-2xl num">{m ? `${Math.round(m.fat)} / ${Math.round(m.lean)}` : '—'}</p><p className="text-[11px] text-muted">kg at {data.weight ?? '?'} kg</p></div>
       </div>
+
+      <InBodyCard scans={data.scans} onChanged={() => void reload()} />
 
       {latest?.ai && (
         <Card title={`Latest read · ${dmy(latest.date)}`} sub={latest.ai.compared_to ? `Compared with ${dmy(latest.ai.compared_to)}` : 'First set — the next one gets compared with this'}

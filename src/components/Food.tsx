@@ -25,7 +25,7 @@ export function FoodCard({ day, acts, body, deficit, openReq = 0 }: { day: strin
   const P = (meals ?? []).reduce((s, m) => s + (m.protein_g ?? 0), 0)
   const pct = Math.min(100, (inK / Math.max(1, out.total)) * 100), tPct = Math.min(100, (target / Math.max(1, out.total)) * 100)
   return (
-    <Card title="Food" sub={`Out ${num(out.total)} kcal = resting ${num(out.base)} + training ${num(out.training)} · target ${num(target)} (${deficit} below)`}
+    <Card title="Food" sub={`Out ${num(out.total)} kcal = resting ${num(out.base)}${body.bmrFrom ? ` (InBody ${body.bmrFrom})` : ''} + training ${num(out.training)} · target ${num(target)} (${deficit} below)`}
       right={<button className="btn btn-primary !py-1.5 text-sm" onClick={() => setAdd(true)}><Icon name="plus" size={15} />Meal</button>}>
       {body.weightFrom !== 'weigh-in' && <p className="text-xs text-warn mb-2">Using {body.weightFrom === 'goal' ? `your goal weight (${body.weight} kg)` : `a guess of ${body.weight} kg`} — log today’s weight in the check-in above for a correct target.</p>}
       <div className="flex items-baseline justify-between text-sm mb-1">
@@ -54,9 +54,9 @@ export function FoodCard({ day, acts, body, deficit, openReq = 0 }: { day: strin
 
 /** downscale a phone photo to ≤1280 px JPEG before sending it */
 // eslint-disable-next-line react-refresh/only-export-components
-export async function shrink(file: File): Promise<string> {
+export async function shrink(file: File, max = 1280): Promise<string> {
   const img = await createImageBitmap(file)
-  const s = Math.min(1, 1280 / Math.max(img.width, img.height))
+  const s = Math.min(1, max / Math.max(img.width, img.height))
   const c = document.createElement('canvas'); c.width = Math.round(img.width * s); c.height = Math.round(img.height * s)
   c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height)
   return c.toDataURL('image/jpeg', 0.82).split(',')[1]

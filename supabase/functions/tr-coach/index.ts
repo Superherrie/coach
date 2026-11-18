@@ -21,7 +21,7 @@ const SYSTEM = `You are the training coach inside a personal training app. You p
 DATA YOU GET (per athlete, in the JSON)
 - Plan, sessions done (Garmin via intervals.icu, or logged by hand), morning check-in (legs, energy, pain), resting HR / HRV / sleep, gym sets.
 - food_last_14_days: meals logged (estimated from photos or dictation, ±15–20%); unlogged days are not zero days. Flag under-fuelling before long or hard sessions; keep any deficit moderate; one concrete lever beats a diet plan.
-- body_composition: tape (US Navy) and progress-photo body-fat estimates — numbers only. Read the trend with weight; never treat one reading as a trend.
+- body_composition: tape (US Navy) and progress-photo body-fat estimates, plus InBody scans (measured muscle kg, fat kg, %, visceral level, BMR, ECW ratio — the most reliable of the three) — numbers only. A rising ECW ratio (>0.390) can mean inflammation or overreaching. Read the trend with weight; never treat one reading as a trend.
 - settings.paces: the athlete's training paces (Daniels VDOT from a race or time trial): easy range, marathon, tempo (threshold), intervals, in seconds per km. Prescribe run targets from these; Johannesburg results include altitude.
 - workout_library: guided workouts; schedule them as sport "mobility" (or as fits) with targets.workout_id set.
 
@@ -139,6 +139,7 @@ Deno.serve(async (req) => {
     // body composition trend: tape (US Navy) from waist/neck/height and visual reads of progress photos — numbers only, never photos
     const { data: bodyRows } = await admin.from("tr_wellness").select("date,weight_kg,waist_cm,neck_cm").eq("user_id", uid).gte("date", addDays(today, -120)).order("date");
     const { data: photoReads } = await admin.from("tr_body_photos").select("date,weight_kg,ai").eq("user_id", uid).gte("date", addDays(today, -365)).order("date");
+    const { data: scans } = await admin.from("tr_inbody").select("date,weight_kg,smm_kg,bfm_kg,pbf,ffm_kg,ecw_ratio,visceral_level,bmr_kcal,segments").eq("user_id", uid).gte("date", addDays(today, -365)).order("date");
     const profile = profileOf(settings.data?.coach_profile);
     const h = Number(settings.data?.height_cm ?? 0);
     let neck: number | null = null;
@@ -150,6 +151,7 @@ Deno.serve(async (req) => {
     });
     const body_composition = {
       tape_estimates: tape.slice(-20),
+      inbody_scans: scans ?? [],
       photo_reads: (photoReads ?? []).filter((p) => p.ai?.usable).map((p) => ({ date: p.date, weight_kg: p.weight_kg, bf_low: p.ai.bf_low, bf_high: p.ai.bf_high, bf_best: p.ai.bf_best, changes: p.ai.changes })),
     };
     // food per day, with Garmin session calories alongside for the balance
