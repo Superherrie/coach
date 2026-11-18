@@ -72,8 +72,8 @@ export default function Layout() {
         <header className="md:hidden sticky top-0 z-20 flex items-center gap-2 px-4 pt-[max(env(safe-area-inset-top),0.6rem)] pb-2 bg-bg/90 backdrop-blur">
           <Logo size={26} /><span className="display text-xl">Coach</span>
           <span className="ml-auto flex items-center gap-1"><SyncButton />
-            <button onClick={() => nav('/?meal=1')} aria-label="Add a meal" className="flex items-center gap-1 rounded-full bg-ember text-white pl-2 pr-2.5 py-1 text-xs font-semibold active:scale-95"><Icon name="food" size={15} />Meal</button>
-            <NavLink to="/workouts" aria-label="Workouts" className="p-1.5 text-muted"><Icon name="stretch" size={19} /></NavLink>
+            <button onClick={() => nav('/?meal=1')} aria-label="Add a meal" className="grid place-items-center w-7 h-7 rounded-full bg-ember text-white active:scale-95"><Icon name="food" size={15} /></button>
+            <NavLink to="/workouts" aria-label="Workouts" className={({ isActive }) => `grid place-items-center w-9 h-9 rounded-full border-2 active:scale-95 ${isActive ? 'border-brand text-brand bg-brand/10' : 'border-line text-ink'}`}><Icon name="stretch" size={22} /></NavLink>
             <NavLink to="/settings" aria-label="Settings" className="p-1.5 text-muted"><Icon name="settings" size={19} /></NavLink></span>
         </header>
         <div className="mx-auto max-w-5xl px-4 md:px-8 md:pt-8"><Outlet /></div>
