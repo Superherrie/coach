@@ -1,4 +1,5 @@
-import { useEffect, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, type ReactElement, type ReactNode } from 'react'
+import { ResponsiveContainer } from 'recharts'
 import Icon from './Icon'
 import { InsightButton, type ChartAI } from './Insight'
 
@@ -7,9 +8,30 @@ export const AXIS = { tick: { fill: 'var(--muted)', fontSize: 11 }, axisLine: fa
 // eslint-disable-next-line react-refresh/only-export-components
 export const GRID = { stroke: 'var(--line)', strokeDasharray: '0', vertical: false } as const
 
-export function Card({ title, sub, right, ai, children, className = '' }: { title?: ReactNode; sub?: ReactNode; right?: ReactNode; ai?: ChartAI; children: ReactNode; className?: string }) {
-  if (ai) right = <span className="flex items-center gap-1.5">{right}<InsightButton ai={ai} /></span>
-  return (
+/** true inside a fullscreen chart card */
+const FullCtx = createContext(false)
+
+/** a chart that fills the screen when its card is opened fullscreen */
+export function FitChart({ height, children }: { height: number; children: ReactElement }) {
+  const full = useContext(FullCtx)
+  const [vh, setVh] = useState(() => window.innerHeight)
+  useEffect(() => { if (!full) return; const f = () => setVh(window.innerHeight); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f) }, [full])
+  return <ResponsiveContainer width="100%" height={full ? Math.max(height, vh - 190) : height}>{children}</ResponsiveContainer>
+}
+
+/** chart cards (those with an AI button, or expand) get a fullscreen button */
+export function Card({ title, sub, right, ai, children, className = '', expand }: { title?: ReactNode; sub?: ReactNode; right?: ReactNode; ai?: ChartAI; children: ReactNode; className?: string; expand?: boolean }) {
+  const [full, setFull] = useState(false)
+  const inFull = useContext(FullCtx)
+  const canExpand = (expand ?? !!ai) && !inFull
+  const extra = right
+  if (ai || canExpand) right = <span className="flex items-center gap-1.5">{extra}{ai && <InsightButton ai={ai} />}
+    {canExpand && <button className="p-1.5 rounded-full text-muted hover:bg-surface-2" aria-label="Full screen" onClick={() => setFull(true)}><Icon name="expand" size={17} /></button>}</span>
+  return (<>
+    {full && <FullScreen onClose={() => setFull(false)} title={title} sub={sub} right={extra}>{children}</FullScreen>}
+    {plain()}
+  </>)
+  function plain() { return (
     <section className={`card p-4 md:p-5 ${className}`}>
       {(title || right) && (
         <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 mb-3">
@@ -19,6 +41,25 @@ export function Card({ title, sub, right, ai, children, className = '' }: { titl
       )}
       {children}
     </section>
+  ) }
+}
+
+function FullScreen({ title, sub, right, children, onClose }: { title?: ReactNode; sub?: ReactNode; right?: ReactNode; children: ReactNode; onClose: () => void }) {
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', k); document.body.style.overflow = 'hidden'
+    return () => { document.removeEventListener('keydown', k); document.body.style.overflow = '' }
+  }, [onClose])
+  return (
+    <div className="fixed inset-0 z-50 bg-surface flex flex-col px-3 md:px-6 pt-[calc(0.75rem+env(safe-area-inset-top))] pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+      <div className="flex items-start gap-3 mb-2">
+        <div className="flex-1 min-w-0">{title && <h2 className="display text-xl leading-tight">{title}</h2>}{sub && <p className="text-xs text-muted mt-0.5">{sub}</p>}</div>
+        {right}
+        <button className="p-2 -m-1 text-muted" onClick={onClose} aria-label="Close full screen"><Icon name="close" /></button>
+      </div>
+      <div className="flex-1 min-h-0 overflow-y-auto"><FullCtx.Provider value={true}>{children}</FullCtx.Provider></div>
+      <p className="text-[11px] text-muted text-center mt-1">Turn your phone sideways for a wider view.</p>
+    </div>
   )
 }
 

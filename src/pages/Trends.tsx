@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { Area, Bar, BarChart, CartesianGrid, ComposedChart, Line, LineChart, ReferenceLine, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from 'recharts'
-import { AXIS, Card, Empty, GRID, Legend, Stat, Tip } from '../components/ui'
+import { Area, Bar, BarChart, CartesianGrid, ComposedChart, Line, LineChart, ReferenceLine, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from 'recharts'
+import { AXIS, Card, Empty, FitChart, GRID, Legend, Stat, Tip } from '../components/ui'
 import { fetchAll, getActs, getEvents, getPlanned, getSets, getSettings, getWellness, useLoad } from '../lib/data'
 import { supabase } from '../lib/supabase'
 import { bodyFrom, kcalOut, KCAL_PER_KG } from '../lib/calories'
@@ -161,7 +161,7 @@ export default function Trends() {
 
       <Card ai={AI.pmc} title="Fitness, fatigue and form" sub={`Daily training load as fitness (42-day) and fatigue (7-day). Dashed = what the plan would do to race day (fitness ${num(v.atRace?.fitness)} on ${dm(v.race)}).`}>
         <Legend items={[{ label: 'Fitness', color: 'var(--s2)' }, { label: 'Fatigue', color: 'var(--s1)' }, { label: 'Planned', color: 'var(--muted)', dashed: true }]} />
-        <ResponsiveContainer width="100%" height={H}>
+        <FitChart height={H}>
           <LineChart data={v.pm} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
             <CartesianGrid {...GRID} /><XAxis dataKey="date" {...AXIS} tickFormatter={tick} minTickGap={40} /><YAxis {...AXIS} />
             <Tooltip content={<Tip labelFormat={tick} />} />
@@ -171,22 +171,22 @@ export default function Trends() {
             <Line dataKey="pFat" name="Fatigue (plan)" stroke="var(--s1)" strokeWidth={1.5} strokeDasharray="4 4" dot={false} />
             <ReferenceLine x={t} stroke="var(--muted)" />
           </LineChart>
-        </ResponsiveContainer>
+        </FitChart>
         <p className="label mt-3 mb-1">Form</p>
-        <ResponsiveContainer width="100%" height={110}>
+        <FitChart height={110}>
           <ComposedChart data={v.pm.filter(d => d.date <= t)} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
             <CartesianGrid {...GRID} /><XAxis dataKey="date" {...AXIS} tickFormatter={tick} minTickGap={40} /><YAxis {...AXIS} />
             <Tooltip content={<Tip labelFormat={tick} />} />
             <ReferenceLine y={-25} stroke="var(--bad)" strokeDasharray="3 3" /><ReferenceLine y={0} stroke="var(--line)" />
             <Area dataKey="form" name="Form" stroke="var(--s7)" fill="var(--s7)" fillOpacity={0.15} strokeWidth={2} />
           </ComposedChart>
-        </ResponsiveContainer>
+        </FitChart>
         <p className="text-xs text-muted mt-1">Below −25 (red line) = deep fatigue; the coach eases the next day. Fitness rising more than ~8 a month is a fast ramp.</p>
       </Card>
 
       <Card ai={AI.volume} title="Running volume" sub="Weekly km done against the planned km (the plan's ceiling), and the week's longest run">
         <Legend items={[{ label: 'Run km', color: 'var(--s1)', box: true }, { label: 'Planned', color: 'var(--muted)', dashed: true }, { label: 'Longest run', color: 'var(--s2)' }]} />
-        <ResponsiveContainer width="100%" height={H}>
+        <FitChart height={H}>
           <ComposedChart data={v.wk} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
             <CartesianGrid {...GRID} /><XAxis dataKey="wk" {...AXIS} tickFormatter={tick} minTickGap={30} /><YAxis {...AXIS} />
             <Tooltip content={<Tip labelFormat={l => `Week of ${tick(l)}`} />} />
@@ -194,12 +194,12 @@ export default function Trends() {
             <Line dataKey="kmPlan" name="Planned km" stroke="var(--muted)" strokeDasharray="4 4" strokeWidth={2} dot={false} />
             <Line dataKey="long" name="Longest run" stroke="var(--s2)" strokeWidth={2} dot={{ r: 3 }} />
           </ComposedChart>
-        </ResponsiveContainer>
+        </FitChart>
       </Card>
 
       <Card ai={AI.hours} title="Hours by type" sub="Weekly training time. Upper-body gym is recovery-grade and counts at 30% in the load.">
         <Legend items={[{ label: 'Run', color: 'var(--s1)', box: true }, { label: 'Ride', color: 'var(--s2)', box: true }, { label: 'Legs', color: 'var(--s3)', box: true }, { label: 'Upper', color: 'var(--s7)', box: true }, { label: 'Other', color: 'var(--s-other)', box: true }]} />
-        <ResponsiveContainer width="100%" height={H}>
+        <FitChart height={H}>
           <BarChart data={v.wk} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
             <CartesianGrid {...GRID} /><XAxis dataKey="wk" {...AXIS} tickFormatter={tick} minTickGap={30} /><YAxis {...AXIS} />
             <Tooltip content={<Tip labelFormat={l => `Week of ${tick(l)}`} fmt={x => `${x} h`} />} />
@@ -208,38 +208,38 @@ export default function Trends() {
                 fill={{ run: 'var(--s1)', ride: 'var(--s2)', legs: 'var(--s3)', upper: 'var(--s7)', other: 'var(--s-other)' }[k]} radius={i === arr.length - 1 ? [4, 4, 0, 0] : 0} />
             ))}
           </BarChart>
-        </ResponsiveContainer>
+        </FitChart>
       </Card>
 
       <div className="grid md:grid-cols-2 gap-4">
         <Card ai={AI.rhr} title="Resting heart rate" sub="Morning value from Garmin, 7-day average">
           {v.well.some(w => w.rhr) ? <>
             <Legend items={[{ label: 'Daily', color: 'var(--s8)' }, { label: '7-day', color: 'var(--ink)' }]} />
-            <ResponsiveContainer width="100%" height={170}>
+            <FitChart height={170}>
               <LineChart data={v.well} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
                 <CartesianGrid {...GRID} /><XAxis dataKey="date" {...AXIS} tickFormatter={tick} minTickGap={40} /><YAxis {...AXIS} domain={['dataMin - 3', 'dataMax + 3']} />
                 <Tooltip content={<Tip labelFormat={tick} />} />
                 <Line dataKey="rhr" name="Resting HR" stroke="var(--s8)" strokeWidth={1.5} dot={{ r: 2 }} connectNulls />
                 <Line dataKey="rhr7" name="7-day" stroke="var(--ink)" strokeWidth={2} dot={false} />
               </LineChart>
-            </ResponsiveContainer></> : <Empty>Comes from your Garmin once intervals.icu is connected.</Empty>}
+            </FitChart></> : <Empty>Comes from your Garmin once intervals.icu is connected.</Empty>}
         </Card>
         <Card ai={AI.hrv} title="HRV" sub="Overnight HRV (rMSSD) from Garmin, 7-day average — falling = fatigue or illness">
           {v.well.some(w => w.hrv) ? <>
             <Legend items={[{ label: 'Nightly', color: 'var(--s3)' }, { label: '7-day', color: 'var(--ink)' }]} />
-            <ResponsiveContainer width="100%" height={170}>
+            <FitChart height={170}>
               <LineChart data={v.well} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
                 <CartesianGrid {...GRID} /><XAxis dataKey="date" {...AXIS} tickFormatter={tick} minTickGap={40} /><YAxis {...AXIS} domain={['dataMin - 5', 'dataMax + 5']} />
                 <Tooltip content={<Tip labelFormat={tick} />} />
                 <Line dataKey="hrv" name="HRV" stroke="var(--s3)" strokeWidth={1.5} dot={{ r: 2 }} connectNulls />
                 <Line dataKey="hrv7" name="7-day" stroke="var(--ink)" strokeWidth={2} dot={false} />
               </LineChart>
-            </ResponsiveContainer></> : <Empty>Comes from your Garmin once intervals.icu is connected.</Empty>}
+            </FitChart></> : <Empty>Comes from your Garmin once intervals.icu is connected.</Empty>}
         </Card>
         <Card ai={AI.weight} title="Weight" sub={`Daily weigh-ins and 7-day average · checkpoint ≤ ${data.settings.goal_weight_kg ?? 91} kg mid-May`}>
           {v.well.some(w => w.kg) ? <>
             <Legend items={[{ label: 'Weigh-in', color: 'var(--s2)' }, { label: '7-day', color: 'var(--ink)' }, { label: 'Goal', color: 'var(--good)', dashed: true }]} />
-            <ResponsiveContainer width="100%" height={170}>
+            <FitChart height={170}>
               <LineChart data={v.well} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
                 <CartesianGrid {...GRID} /><XAxis dataKey="date" {...AXIS} tickFormatter={tick} minTickGap={40} /><YAxis {...AXIS} domain={[(min: number) => Math.min(min, data.settings.goal_weight_kg ?? 91) - 1, 'dataMax + 1']} />
                 <Tooltip content={<Tip labelFormat={tick} fmt={x => `${x} kg`} />} />
@@ -247,18 +247,18 @@ export default function Trends() {
                 <Line dataKey="kg" name="Weight" stroke="var(--s2)" strokeWidth={0} dot={{ r: 3 }} connectNulls={false} />
                 <Line dataKey="kg7" name="7-day" stroke="var(--ink)" strokeWidth={2} dot={false} connectNulls />
               </LineChart>
-            </ResponsiveContainer></> : <Empty>Log weight in the check-in (or a Garmin scale syncs it).</Empty>}
+            </FitChart></> : <Empty>Log weight in the check-in (or a Garmin scale syncs it).</Empty>}
         </Card>
         <Card ai={AI.waist} title="Waist" sub={h ? `cm · waist-to-height under 0.50 = under ${Math.round(h * 0.5)} cm` : 'cm · add your height in Settings for the ratio'}>
           {v.well.some(w => w.waist) ? (
-            <ResponsiveContainer width="100%" height={170}>
+            <FitChart height={170}>
               <LineChart data={v.well.filter(w => w.waist)} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
                 <CartesianGrid {...GRID} /><XAxis dataKey="date" {...AXIS} tickFormatter={tick} minTickGap={40} /><YAxis {...AXIS} domain={['dataMin - 2', 'dataMax + 2']} />
                 <Tooltip content={<Tip labelFormat={tick} fmt={x => `${x} cm`} />} />
                 {h && <ReferenceLine y={Math.round(h * 0.5)} stroke="var(--good)" strokeDasharray="4 4" />}
                 <Line dataKey="waist" name="Waist" stroke="var(--s4)" strokeWidth={2} dot={{ r: 3 }} />
               </LineChart>
-            </ResponsiveContainer>) : <Empty>Measure weekly at the navel, same time of day, and log it in the check-in.</Empty>}
+            </FitChart>) : <Empty>Measure weekly at the navel, same time of day, and log it in the check-in.</Empty>}
         </Card>
       </div>
 
@@ -266,7 +266,7 @@ export default function Trends() {
         right={<Link to="/body" className="chip !py-1 !px-2.5"><Icon name="camera" size={13} />Photos</Link>}>
         {v.bf.length ? <>
           <Legend items={[{ label: 'Tape (Navy)', color: 'var(--s5)' }, { label: 'Photo read', color: 'var(--s7)' }, ...(v.bf.some(x => x.inbody != null) ? [{ label: 'InBody', color: 'var(--s2)' }] : [])]} />
-          <ResponsiveContainer width="100%" height={180}>
+          <FitChart height={180}>
             <ComposedChart data={v.bf} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
               <CartesianGrid {...GRID} /><XAxis dataKey="date" {...AXIS} tickFormatter={tick} minTickGap={40} /><YAxis {...AXIS} domain={['dataMin - 2', 'dataMax + 2']} />
               <Tooltip content={<Tip labelFormat={tick} fmt={x => `${x}%`} />} />
@@ -274,7 +274,7 @@ export default function Trends() {
               <Line dataKey="photo" name="Photo" stroke="var(--s7)" strokeWidth={0} dot={{ r: 5, strokeWidth: 2, stroke: 'var(--surface)' }} connectNulls={false} />
               <Line dataKey="inbody" name="InBody" stroke="var(--s2)" strokeWidth={1.5} strokeDasharray="3 3" dot={{ r: 5, strokeWidth: 2, stroke: 'var(--surface)' }} connectNulls />
             </ComposedChart>
-          </ResponsiveContainer>
+          </FitChart>
         </> : <Empty>Log waist and neck in the check-in, or add progress photos.</Empty>}
       </Card>
 
@@ -282,28 +282,28 @@ export default function Trends() {
         <Card ai={AI.inbody} title="InBody: muscle and fat" sub="Skeletal muscle and body fat mass (kg) per scan. Fat down with muscle holding is the goal."
           right={<Link to="/body" className="chip !py-1 !px-2.5"><Icon name="plus" size={13} />Scan</Link>}>
           <Legend items={[{ label: 'Muscle kg', color: 'var(--s1)' }, { label: 'Fat kg', color: 'var(--s4)' }]} />
-          <ResponsiveContainer width="100%" height={180}>
+          <FitChart height={180}>
             <LineChart data={v.inbody} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
               <CartesianGrid {...GRID} /><XAxis dataKey="date" {...AXIS} tickFormatter={tick} minTickGap={40} /><YAxis {...AXIS} domain={['dataMin - 3', 'dataMax + 3']} />
               <Tooltip content={<Tip labelFormat={tick} fmt={x => `${x} kg`} />} />
               <Line dataKey="muscle" name="Muscle" stroke="var(--s1)" strokeWidth={2} dot={{ r: 4 }} connectNulls />
               <Line dataKey="fat" name="Fat" stroke="var(--s4)" strokeWidth={2} dot={{ r: 4 }} connectNulls />
             </LineChart>
-          </ResponsiveContainer>
+          </FitChart>
         </Card>
       )}
 
       <Card ai={AI.calories} title="Calories in and out" sub="Average per logged day, by week. Out = resting burn + Garmin session calories. Days without food logged are left out.">
         {v.cal.length ? <>
           <Legend items={[{ label: 'In (eaten)', color: 'var(--s4)', box: true }, { label: 'Out (burned)', color: 'var(--s2)' }]} />
-          <ResponsiveContainer width="100%" height={H}>
+          <FitChart height={H}>
             <ComposedChart data={v.cal} margin={{ top: 5, right: 5, left: -10, bottom: 0 }}>
               <CartesianGrid {...GRID} /><XAxis dataKey="wk" {...AXIS} tickFormatter={tick} minTickGap={30} /><YAxis {...AXIS} />
               <Tooltip content={<Tip labelFormat={l => `Week of ${tick(l)}`} fmt={x => `${num(x)} kcal`} />} />
               <Bar dataKey="in" name="In" fill="var(--s4)" radius={[4, 4, 0, 0]} />
               <Line dataKey="out" name="Out" stroke="var(--s2)" strokeWidth={2} dot={{ r: 3 }} />
             </ComposedChart>
-          </ResponsiveContainer>
+          </FitChart>
           {(() => { const last = v.cal[v.cal.length - 1]; return <p className="text-xs text-muted mt-1 num">Week of {tick(last.wk)}: {last.days} days logged · net {last.net > 0 ? '+' : ''}{num(last.net)} kcal/day ≈ {last.kgWeek > 0 ? '+' : ''}{last.kgWeek} kg/week · protein {num(last.protein)} g/day</p> })()}
         </> : <Empty>Log meals on the Today screen and the weekly balance shows here.</Empty>}
       </Card>
@@ -311,32 +311,32 @@ export default function Trends() {
       <div className="grid md:grid-cols-2 gap-4">
         <Card ai={AI.runEff} title="Easy-run efficiency" sub="Metres per minute per heartbeat on easy runs (higher = fitter at the same effort). Uses grade-adjusted pace where Garmin has it.">
           {v.easyRuns.length >= 2 ? (
-            <ResponsiveContainer width="100%" height={180}>
+            <FitChart height={180}>
               <ScatterChart margin={{ top: 5, right: 5, left: -15, bottom: 0 }}>
                 <CartesianGrid {...GRID} /><XAxis dataKey="x" type="number" domain={['dataMin', 'dataMax']} {...AXIS} tickFormatter={x => dm(new Date(x).toISOString().slice(0, 10))} />
                 <YAxis dataKey="eff" {...AXIS} domain={['dataMin - 0.05', 'dataMax + 0.05']} tickFormatter={x => x.toFixed(2)} /><ZAxis range={[60, 60]} />
                 <Tooltip content={({ active, payload }) => active && payload?.[0] ? (() => { const p = payload[0].payload; return <div className="rounded-xl border border-line bg-surface px-3 py-2 text-xs shadow-lg"><p className="font-semibold">{dm(p.date)} · {p.km} km</p><p className="text-muted num">{pace(p.pace)} at HR {p.hr} · {p.eff}</p></div> })() : null} />
                 <Scatter data={v.easyRuns} fill="var(--s1)" stroke="var(--surface)" strokeWidth={2} />
               </ScatterChart>
-            </ResponsiveContainer>) : <Empty>Needs a few easy runs from Garmin.</Empty>}
+            </FitChart>) : <Empty>Needs a few easy runs from Garmin.</Empty>}
         </Card>
         <Card ai={AI.rideEff} title="Easy-ride efficiency" sub="Watts per heartbeat on easy rides (your 1.74–1.93 range in Oct 2026). Compare within type only.">
           {v.easyRides.length >= 2 ? (
-            <ResponsiveContainer width="100%" height={180}>
+            <FitChart height={180}>
               <ScatterChart margin={{ top: 5, right: 5, left: -15, bottom: 0 }}>
                 <CartesianGrid {...GRID} /><XAxis dataKey="x" type="number" domain={['dataMin', 'dataMax']} {...AXIS} tickFormatter={x => dm(new Date(x).toISOString().slice(0, 10))} />
                 <YAxis dataKey="eff" {...AXIS} domain={['dataMin - 0.1', 'dataMax + 0.1']} tickFormatter={x => x.toFixed(2)} /><ZAxis range={[60, 60]} />
                 <Tooltip content={({ active, payload }) => active && payload?.[0] ? (() => { const p = payload[0].payload; return <div className="rounded-xl border border-line bg-surface px-3 py-2 text-xs shadow-lg"><p className="font-semibold">{dm(p.date)}</p><p className="text-muted num">{p.w} W at HR {p.hr} · EF {p.eff}</p></div> })() : null} />
                 <Scatter data={v.easyRides} fill="var(--s2)" stroke="var(--surface)" strokeWidth={2} />
               </ScatterChart>
-            </ResponsiveContainer>) : <Empty>Needs a few easy rides with power from Garmin.</Empty>}
+            </FitChart>) : <Empty>Needs a few easy rides with power from Garmin.</Empty>}
         </Card>
       </div>
 
       <Card ai={AI.zones} title="Run intensity (80/20)" sub={`Share of running time by HR zone. Target about 80% easy (Z1–Z2).${avgPct != null ? ` Last 4 weeks: ${avgPct}% easy.` : ''}`}>
         {v.zones.length ? <>
           <Legend items={[{ label: 'Easy Z1–2', color: 'var(--s3)', box: true }, { label: 'Moderate Z3', color: 'var(--s4)', box: true }, { label: 'Hard Z4–5', color: 'var(--s8)', box: true }]} />
-          <ResponsiveContainer width="100%" height={170}>
+          <FitChart height={170}>
             <BarChart data={v.zones} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
               <CartesianGrid {...GRID} /><XAxis dataKey="wk" {...AXIS} tickFormatter={tick} minTickGap={30} /><YAxis {...AXIS} domain={[0, 100]} />
               <Tooltip content={<Tip labelFormat={l => `Week of ${tick(l)}`} fmt={x => `${x}%`} />} />
@@ -345,41 +345,41 @@ export default function Trends() {
               <Bar dataKey="mid" name="Moderate" stackId="z" fill="var(--s4)" stroke="var(--surface)" strokeWidth={1} />
               <Bar dataKey="hard" name="Hard" stackId="z" fill="var(--s8)" stroke="var(--surface)" strokeWidth={1} radius={[4, 4, 0, 0]} />
             </BarChart>
-          </ResponsiveContainer></> : <Empty>Needs runs with heart rate from Garmin.</Empty>}
+          </FitChart></> : <Empty>Needs runs with heart rate from Garmin.</Empty>}
       </Card>
 
       <div className="grid md:grid-cols-2 gap-4">
         <Card ai={AI.gym} title="Leg strength" sub="Best estimated one-rep max per session (from kg × reps you log)">
           {v.gym.length ? <>
             <Legend items={v.liftsSeen.map((l, i) => ({ label: l, color: ['var(--s3)', 'var(--s2)', 'var(--s1)', 'var(--s7)'][i] }))} />
-            <ResponsiveContainer width="100%" height={180}>
+            <FitChart height={180}>
               <LineChart data={v.gym} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
                 <CartesianGrid {...GRID} /><XAxis dataKey="date" {...AXIS} tickFormatter={tick} minTickGap={30} /><YAxis {...AXIS} />
                 <Tooltip content={<Tip labelFormat={tick} fmt={x => `${x} kg`} />} />
                 {v.liftsSeen.map((l, i) => <Line key={l} dataKey={l} name={l} stroke={['var(--s3)', 'var(--s2)', 'var(--s1)', 'var(--s7)'][i]} strokeWidth={2} dot={{ r: 3 }} connectNulls />)}
               </LineChart>
-            </ResponsiveContainer></> : <Empty>Log kg on your leg sessions and the trend appears here.</Empty>}
+            </FitChart></> : <Empty>Log kg on your leg sessions and the trend appears here.</Empty>}
         </Card>
         <Card ai={AI.compliance} title="Plan compliance" sub="Share of planned sessions done each week">
-          <ResponsiveContainer width="100%" height={180}>
+          <FitChart height={180}>
             <BarChart data={v.wk.filter(w => w.pct != null)} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
               <CartesianGrid {...GRID} /><XAxis dataKey="wk" {...AXIS} tickFormatter={tick} minTickGap={30} /><YAxis {...AXIS} domain={[0, 100]} />
               <Tooltip content={<Tip labelFormat={l => `Week of ${tick(l)}`} fmt={x => `${x}%`} />} />
               <Bar dataKey="pct" name="Done" fill="var(--s2)" radius={[4, 4, 0, 0]} />
             </BarChart>
-          </ResponsiveContainer>
+          </FitChart>
         </Card>
       </div>
 
       {v.ftp.length > 0 && (
         <Card ai={AI.ftp} title="FTP" sub={`As intervals.icu applied it per ride · working value ${data.settings.ftp_w ?? 310} W`}>
-          <ResponsiveContainer width="100%" height={150}>
+          <FitChart height={150}>
             <LineChart data={v.ftp} margin={{ top: 5, right: 5, left: -15, bottom: 0 }}>
               <CartesianGrid {...GRID} /><XAxis dataKey="date" {...AXIS} tickFormatter={tick} minTickGap={40} /><YAxis {...AXIS} domain={['dataMin - 10', 'dataMax + 10']} />
               <Tooltip content={<Tip labelFormat={tick} fmt={x => `${x} W`} />} />
               <Line dataKey="ftp" name="FTP" stroke="var(--s2)" strokeWidth={2} dot={false} type="stepAfter" />
             </LineChart>
-          </ResponsiveContainer>
+          </FitChart>
         </Card>
       )}
       <p className="text-[11px] text-muted text-center">Load is a TSS-like score: intervals.icu's figure where Garmin measured it, otherwise estimated from minutes × effort.</p>

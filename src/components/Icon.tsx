@@ -22,6 +22,7 @@ const PATHS: Record<string, string> = {
   send: 'M4 12l16-8-6 16-2-7z', lock: 'M6 11h12v9H6zM8 11V8a4 4 0 018 0v3',
   camera: 'M4 8h3l2-3h6l2 3h3a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V9a1 1 0 011-1zm8 3a3.5 3.5 0 100 7 3.5 3.5 0 000-7z',
   mic: 'M12 3a3 3 0 00-3 3v6a3 3 0 006 0V6a3 3 0 00-3-3zM5 11a7 7 0 0014 0M12 18v3',
+  expand: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
   food: 'M7 3v8a2 2 0 002 2v8M5 3v5M9 3v5M17 3c-2 0-3 3-3 6s1 4 3 4v8',
 }
 
