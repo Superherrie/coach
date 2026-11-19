@@ -19,6 +19,9 @@ export function useSynced(reload: () => unknown) {
   useEffect(() => { const f = () => void reload(); window.addEventListener('tr-synced', f); return () => window.removeEventListener('tr-synced', f) }, [reload])
 }
 
+/** the SAST calendar date of a timestamp */
+const sastDate = (ts: string) => new Date(Date.parse(ts) + 2 * 3600e3).toISOString().slice(0, 10)
+
 export default function Today() {
   const [params, setParams] = useSearchParams(); const nav = useNavigate()
   const [day, setDay] = useState(today())
@@ -129,7 +132,8 @@ export default function Today() {
       <CheckIn day={day} w={w} onSaved={() => void reload()} height={data.settings.height_cm}
         last={{ waist: [...data.well].reverse().find(x => x.waist_cm)?.waist_cm ?? null, neck: [...data.well].reverse().find(x => x.neck_cm)?.neck_cm ?? null }} />
 
-      <FoodCard day={day} acts={dayActs} openReq={mealReq} deficit={data.settings.kcal_deficit ?? 500} body={bodyFrom(data.settings, data.well, day, data.scans)} />
+      <FoodCard day={day} acts={dayActs} openReq={mealReq} deficit={data.settings.kcal_deficit ?? 500}
+        fuel={data.run?.fuel && sastDate(data.run.created_at) === day ? data.run.fuel : null} body={bodyFrom(data.settings, data.well, day, data.scans)} />
 
       {next && <p className="text-xs text-muted text-center">Next: <span className="font-medium text-ink">{next.name}</span> · {dmy(next.date)} · {daysBetween(day, next.date)} days</p>}
 

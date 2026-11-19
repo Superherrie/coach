@@ -26,6 +26,7 @@ DATA YOU GET (per athlete, in the JSON)
 - body_composition: tape (US Navy) and progress-photo body-fat estimates, plus InBody scans (measured muscle kg, fat kg, %, visceral level, BMR, ECW ratio — the most reliable of the three) — numbers only. A rising ECW ratio (>0.390) can mean inflammation or overreaching. Read the trend with weight; never treat one reading as a trend.
 - settings.paces: the athlete's training paces (Daniels VDOT from a race or time trial): easy range, marathon, tempo (threshold), intervals, in seconds per km. Prescribe run targets from these; Johannesburg results include altitude.
 - coach_memory: standing decisions, facts and preferences the athlete agreed with you or told you (id, date, text, expires_on). They are binding: follow them in every review and answer, and they override your defaults and the profile where they conflict. Never re-introduce something a memory item rules out.
+- FUEL TARGETS (daily review → "fuel" for today): set kcal and macros from today's and tomorrow's sessions and the phase. Carbs by demand: rest/recovery 3–4 g/kg, easy day 4–5, hard or long day 6–8, carb loading 8–10 g/kg on the 1–2 days before a key race (no deficit then); protein 1.6–2.0 g/kg; fat 0.8–1.0 g/kg (lower on carb-load days). The weight-loss deficit (settings.kcal_deficit) applies on rest and easy days only, never before or after a long/hard session or race. Use the latest weight. Grams must add up to about the kcal (4/4/9).
 - workout_library: guided workouts; schedule them as sport "mobility" (or as fits) with targets.workout_id set.
 
 LOAD UNITS
@@ -58,11 +59,17 @@ const Change = z.object({
   why: z.string().describe("one sentence shown on the session card"),
   after: Session.nullable().describe("null removes the session"),
 });
+const Fuel = z.object({
+  kcal: z.number().int().describe("total kcal to eat today"),
+  carbs_g: z.number().int(), protein_g: z.number().int(), fat_g: z.number().int(),
+  why: z.string().describe("one short line, e.g. 'Carb load day 2: 9 g/kg, no deficit' or 'Rest day: 3 g/kg carbs, 500 kcal deficit'"),
+});
 const Daily = z.object({
   summary: z.string().describe("2–4 sentences for the athlete: how the last days went against plan, what the data says, what changed"),
   today_note: z.string().describe("one or two lines about today's sessions"),
   proposal_title: z.string().nullable().describe("title for the big changes, if any"),
   changes: z.array(Change),
+  fuel: Fuel.nullable().describe("today's eating targets (daily review only; null in the weekly review)"),
 });
 const Memory = z.object({
   text: z.string().describe("one self-contained line in the third person, e.g. 'No hip mobility sessions until Herman asks for them' or 'Away in Cape Town 3–7 Dec: hotel gym only'"),
@@ -326,7 +333,7 @@ ${JSON.stringify(context)}`
       proposalId = p?.id ?? null;
     }
     const summary = review ? out.summary : out.reply;
-    await admin.from("tr_coach_runs").update({ summary, today_note: out.today_note ?? null, model, usage: { ...res.usage, applied: applied.length, proposed: proposed.length } }).eq("id", runId);
+    await admin.from("tr_coach_runs").update({ summary, today_note: out.today_note ?? null, fuel: mode === "daily" ? (out.fuel ?? null) : null, model, usage: { ...res.usage, applied: applied.length, proposed: proposed.length } }).eq("id", runId);
     // chat → save lasting decisions / retire outdated ones
     let memMeta: { saved: string[]; retired: string[] } | null = null;
     if (mode === "chat") {
@@ -345,7 +352,7 @@ ${JSON.stringify(context)}`
       if (saved.length || retired.length) memMeta = { saved, retired };
       await admin.from("tr_chat").insert({ user_id: uid, role: "assistant", content: out.reply, meta: memMeta });
     }
-    return json({ ok: true, summary, today_note: out.today_note ?? null, memory: memMeta, applied, proposal_id: proposalId, proposed: proposed.length, model, usage: res.usage });
+    return json({ ok: true, summary, today_note: out.today_note ?? null, fuel: out.fuel ?? null, memory: memMeta, applied, proposal_id: proposalId, proposed: proposed.length, model, usage: res.usage });
   } catch (e) {
     const msg = e instanceof Anthropic.RateLimitError ? "Claude is rate-limited — try again in a minute"
       : e instanceof Anthropic.AuthenticationError ? "The ANTHROPIC_API_KEY was rejected — check the Supabase secret"

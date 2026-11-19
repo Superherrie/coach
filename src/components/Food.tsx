@@ -5,7 +5,7 @@ import { callFn, useLoad } from '../lib/data'
 import { supabase } from '../lib/supabase'
 import { num, today } from '../lib/format'
 import { kcalOut, type Body } from '../lib/calories'
-import type { Activity } from '../lib/types'
+import type { Activity, Fuel } from '../lib/types'
 
 export interface MealItem { name: string; portion: string; kcal: number; protein_g: number; carbs_g: number; fat_g: number }
 interface Fav { id: number; name: string; meal: string; items: MealItem[]; kcal: number; protein_g: number | null; carbs_g: number | null; fat_g: number | null; uses: number }
@@ -14,18 +14,39 @@ const MEALS = ['breakfast', 'lunch', 'dinner', 'snack', 'drink'] as const
 const guessMeal = () => { const h = new Date().getHours(); return h < 10 ? 'breakfast' : h < 15 ? 'lunch' : h < 17 ? 'snack' : 'dinner' }
 
 /** Today's food: in vs out, the target, and the meals with an Add button (photo or words). */
-export function FoodCard({ day, acts, body, deficit, openReq = 0 }: { day: string; acts: Activity[]; body: Body; deficit: number; openReq?: number }) {
+/** one macro: eaten vs target, bar turns amber when well under late in the day isn't judged — just shown */
+function MacroBar({ label, eaten, target, color }: { label: string; eaten: number; target: number; color: string }) {
+  const pct = Math.min(100, (eaten / Math.max(1, target)) * 100)
+  const over = eaten > target * 1.1
+  return (
+    <div>
+      <div className="flex items-baseline justify-between text-xs">
+        <span className="font-medium">{label}</span>
+        <span className="num text-muted"><b className={over ? 'text-warn' : 'text-ink'}>{Math.round(eaten)}</b> / {Math.round(target)} g</span>
+      </div>
+      <div className="h-1.5 rounded-full bg-surface-2 mt-1"><div className="h-1.5 rounded-full" style={{ width: `${pct}%`, background: over ? 'var(--warn)' : color }} /></div>
+      <p className="text-[10px] text-muted mt-0.5 num">{eaten < target ? `${Math.round(target - eaten)} g to go` : over ? `${Math.round(eaten - target)} g over` : 'on target'}</p>
+    </div>
+  )
+}
+
+export function FoodCard({ day, acts, body, deficit, fuel, openReq = 0 }: { day: string; acts: Activity[]; body: Body; deficit: number; fuel?: Fuel | null; openReq?: number }) {
   const { data: meals, reload } = useLoad(async () => (await supabase.from('tr_meals').select('*').eq('date', day).order('eaten_at', { nullsFirst: false }).order('created_at')).data as Meal[] ?? [], [day])
   const [add, setAdd] = useState(false); const [edit, setEdit] = useState<Meal>()
   useEffect(() => { if (openReq > 0) setAdd(true) }, [openReq])   // top-bar "Meal" shortcut
   const out = useMemo(() => kcalOut(acts, body), [acts, body])
   const inK = (meals ?? []).reduce((s, m) => s + m.kcal, 0)
-  const target = out.total - deficit
+  const target = fuel?.kcal ?? out.total - deficit
   const left = target - inK
   const P = (meals ?? []).reduce((s, m) => s + (m.protein_g ?? 0), 0)
+  const C = (meals ?? []).reduce((s, m) => s + (m.carbs_g ?? 0), 0)
+  const F = (meals ?? []).reduce((s, m) => s + (m.fat_g ?? 0), 0)
+  // macro targets: the coach's for today, else protein 1.6 g/kg, fat 0.9 g/kg, carbs = the rest of the kcal (at least 2 g/kg)
+  const mt = fuel ? { p: fuel.protein_g, c: fuel.carbs_g, f: fuel.fat_g }
+    : (() => { const p = body.weight * 1.6, f = body.weight * 0.9; return { p, f, c: Math.max(body.weight * 2, (target - p * 4 - f * 9) / 4) } })()
   const pct = Math.min(100, (inK / Math.max(1, out.total)) * 100), tPct = Math.min(100, (target / Math.max(1, out.total)) * 100)
   return (
-    <Card title="Food" sub={`Out ${num(out.total)} kcal = resting ${num(out.base)}${body.bmrFrom ? ` (InBody ${body.bmrFrom})` : ''} + training ${num(out.training)} · target ${num(target)} (${deficit} below)`}
+    <Card title="Food" sub={`Out ${num(out.total)} kcal = resting ${num(out.base)}${body.bmrFrom ? ` (InBody ${body.bmrFrom})` : ''} + training ${num(out.training)} · target ${num(target)}${fuel ? ' (coach)' : ` (${deficit} below)`}`}
       right={<button className="btn btn-primary !py-1.5 text-sm" onClick={() => setAdd(true)}><Icon name="plus" size={15} />Meal</button>}>
       {body.weightFrom !== 'weigh-in' && <p className="text-xs text-warn mb-2">Using {body.weightFrom === 'goal' ? `your goal weight (${body.weight} kg)` : `a guess of ${body.weight} kg`} — log today’s weight in the check-in above for a correct target.</p>}
       <div className="flex items-baseline justify-between text-sm mb-1">
@@ -36,7 +57,12 @@ export function FoodCard({ day, acts, body, deficit, openReq = 0 }: { day: strin
         <div className="h-2.5 rounded-full" style={{ width: `${pct}%`, background: inK > target ? 'var(--warn)' : 'var(--s3)' }} />
         <span className="absolute -top-1 w-0.5 h-4.5 bg-ink/60 rounded" style={{ left: `${tPct}%` }} title="target" />
       </div>
-      <p className="text-[11px] text-muted mt-1">Protein {num(P)} g{body.weight ? ` · aim ~${Math.round(body.weight * 1.6)} g (1.6 g/kg) for strength work` : ''}</p>
+      <div className="grid grid-cols-3 gap-3 mt-3">
+        <MacroBar label="Protein" eaten={P} target={mt.p} color="var(--s1)" />
+        <MacroBar label="Carbs" eaten={C} target={mt.c} color="var(--s4)" />
+        <MacroBar label="Fat" eaten={F} target={mt.f} color="var(--s7)" />
+      </div>
+      <p className="text-[11px] text-muted mt-1.5">{fuel ? <><span className="text-brand">Coach: </span>{fuel.why}</> : `Default split: protein 1.6 g/kg, fat 0.9 g/kg, carbs the rest. The coach sets day-specific targets in its morning review.`}</p>
       <ul className="mt-3 divide-y divide-line">
         {(meals ?? []).map(m => (
           <li key={m.id}><button className="w-full flex items-center gap-3 py-2 text-left" onClick={() => setEdit(m)}>
