@@ -26,7 +26,7 @@ DATA YOU GET (per athlete, in the JSON)
 - body_composition: tape (US Navy) and progress-photo body-fat estimates, plus InBody scans (measured muscle kg, fat kg, %, visceral level, BMR, ECW ratio — the most reliable of the three) — numbers only. A rising ECW ratio (>0.390) can mean inflammation or overreaching. Read the trend with weight; never treat one reading as a trend.
 - settings.paces: the athlete's training paces (Daniels VDOT from a race or time trial): easy range, marathon, tempo (threshold), intervals, in seconds per km. Prescribe run targets from these; Johannesburg results include altitude.
 - coach_memory: standing decisions, facts and preferences the athlete agreed with you or told you (id, date, text, expires_on). They are binding: follow them in every review and answer, and they override your defaults and the profile where they conflict. Never re-introduce something a memory item rules out.
-- FUEL TARGETS (daily review → "fuel" for today): set kcal and macros from today's and tomorrow's sessions and the phase. Carbs by demand: rest/recovery 3–4 g/kg, easy day 4–5, hard or long day 6–8, carb loading 8–10 g/kg on the 1–2 days before a key race (no deficit then); protein 1.6–2.0 g/kg; fat 0.8–1.0 g/kg (lower on carb-load days). The weight-loss deficit (settings.kcal_deficit) applies on rest and easy days only, never before or after a long/hard session or race. Use the latest weight. Grams must add up to about the kcal (4/4/9).
+- FUEL TARGETS (daily review → "fuel" for today): set the deficit and macros from today's and tomorrow's sessions and the phase. energy_today is the app's own burn (resting × activity factor + Garmin session calories already done; planned_sessions_kcal is an estimate for sessions not done yet) — base the deficit on it and never estimate burn yourself. Carbs by demand: rest/recovery 3–4 g/kg, easy day 4–5, hard or long day 6–8, carb loading 8–10 g/kg on the 1–2 days before a key race (no deficit then); protein 1.6–2.0 g/kg; fat 0.8–1.0 g/kg (lower on carb-load days). The weight-loss deficit (settings.kcal_deficit) applies on rest and easy days only, never before or after a long/hard session or race. Use the latest weight. Grams must add up to about the kcal (4/4/9).
 - workout_library: guided workouts; schedule them as sport "mobility" (or as fits) with targets.workout_id set.
 
 LOAD UNITS
@@ -60,7 +60,8 @@ const Change = z.object({
   after: Session.nullable().describe("null removes the session"),
 });
 const Fuel = z.object({
-  kcal: z.number().int().describe("total kcal to eat today"),
+  deficit_kcal: z.number().int().describe("kcal below today's burn (energy_today) to eat: 0 for no deficit, settings.kcal_deficit on rest/easy days; the app recalculates the target live as burn − this"),
+  kcal: z.number().int().describe("energy_today.total_so_far − deficit_kcal (for the note; the app recomputes as sessions sync)"),
   carbs_g: z.number().int(), protein_g: z.number().int(), fat_g: z.number().int(),
   why: z.string().describe("one short line, e.g. 'Carb load day 2: 9 g/kg, no deficit' or 'Rest day: 3 g/kg carbs, 500 kcal deficit'"),
 });
@@ -182,6 +183,29 @@ Deno.serve(async (req) => {
       const f = foodDays.get(m.date) ?? { kcal: 0, protein_g: 0, carbs_g: 0, meals: [] };
       f.kcal += m.kcal; f.protein_g += Number(m.protein_g ?? 0); f.carbs_g += Number(m.carbs_g ?? 0); f.meals.push(`${m.meal}: ${m.description} (${m.kcal})`); foodDays.set(m.date, f);
     }
+    // today's burn exactly as the app's Food card computes it (src/lib/calories.ts): Mifflin by sex (or InBody BMR ≤120 days old) × factor + sessions
+    const energy_today = (() => {
+      const st = settings.data ?? {} as Record<string, unknown>;
+      const female = st.sex === "female";
+      const kg = Number([...(well.data ?? [])].reverse().find((w) => w.weight_kg && w.date <= today)?.weight_kg ?? st.goal_weight_kg ?? (female ? 68 : 82));
+      const age = Number(today.slice(0, 4)) - Number(st.birth_year ?? 1985);
+      const scan = [...(scans ?? [])].filter((x) => x.bmr_kcal && x.date <= today && x.date >= addDays(today, -120)).pop();
+      const bmr = scan ? Number(scan.bmr_kcal) : Math.round(10 * kg + 6.25 * Number(st.height_cm ?? (female ? 168 : 178)) - 5 * age + (female ? -161 : 5));
+      const factor = Number(st.activity_factor ?? 1.25);
+      const resting = Math.round(bmr * factor);
+      const sess = (a: Record<string, unknown>) => {
+        const min = Number(a.duration_s ?? 0) / 60, share = (bmr * factor / 1440) * min;
+        const gross = a.calories ? Number(a.calories) : a.sport === "ride" && a.avg_watts && a.duration_s ? Number(a.avg_watts) * Number(a.duration_s) / 1000
+          : a.sport === "run" && a.distance_m ? kg * Number(a.distance_m) / 1000 : String(a.sport).startsWith("gym") ? 6 * min : 4 * min;
+        return Math.max(0, Math.round(gross - share));
+      };
+      const done = (acts.data ?? []).filter((a) => a.date === today);
+      const sessions = done.reduce((s, a) => s + sess(a as Record<string, unknown>), 0);
+      const doneIds = new Set(done.map((a) => a.planned_id).filter(Boolean));
+      const plannedLeft = (planned.data ?? []).filter((p) => p.date === today && p.sport !== "rest" && !doneIds.has(p.id) && p.status !== "done");
+      const planned_sessions_kcal = plannedLeft.reduce((s, p) => s + Math.round((Number(p.duration_min ?? 0)) * (p.sport === "ride" ? 11 : p.sport === "run" ? 12 : 6) * (p.intensity === "hard" ? 1.2 : 1)), 0);
+      return { bmr, bmr_from: scan ? `InBody ${scan.date}` : "Mifflin–St Jeor", weight_kg: kg, activity_factor: factor, resting, sessions_done_kcal: sessions, total_so_far: resting + sessions, planned_sessions_kcal, kcal_deficit_setting: Number(st.kcal_deficit ?? 500) };
+    })();
     const sessionKcal = (d: string) => (acts.data ?? []).filter((a) => a.date === d).reduce((s, a) => s + Number((a as { calories?: number }).calories ?? 0), 0);
     const food = [...foodDays.entries()].map(([date, f]) => ({ date, kcal_in: Math.round(f.kcal), protein_g: Math.round(f.protein_g), carbs_g: Math.round(f.carbs_g), garmin_session_kcal: sessionKcal(date), meals: f.meals }));
 
@@ -210,6 +234,7 @@ Deno.serve(async (req) => {
       wellness_last_42_days: well.data,
       gym_sets_last_35_days: sets.data,
       food_last_14_days: food,
+      energy_today,
       workout_library: library ?? [],
       body_composition,
       load_last_28_days: pmc.slice(-28),

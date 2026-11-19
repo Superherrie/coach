@@ -42,5 +42,5 @@ export interface Event { id: number; date: string; name: string; kind: string; d
 
 export interface ProposalChange { date: string; slot: Slot; why: string; before: { sport: Sport; title: string; duration_min: number | null; distance_km: number | null; planned_load: number | null } | null; after: (Omit<Planned, 'id' | 'date' | 'slot' | 'source' | 'locked' | 'status'>) | null }
 export interface Proposal { id: number; created_at: string; title: string; why: string | null; changes: ProposalChange[]; status: string }
-export interface Fuel { kcal: number; carbs_g: number; protein_g: number; fat_g: number; why: string }
+export interface Fuel { deficit_kcal?: number; kcal: number; carbs_g: number; protein_g: number; fat_g: number; why: string }
 export interface CoachRun { id: number; created_at: string; kind: string; summary: string | null; today_note: string | null; fuel?: Fuel | null; model: string | null; error: string | null; usage: Record<string, number> | null }

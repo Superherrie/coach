@@ -36,7 +36,8 @@ export function FoodCard({ day, acts, body, deficit, fuel, openReq = 0 }: { day:
   useEffect(() => { if (openReq > 0) setAdd(true) }, [openReq])   // top-bar "Meal" shortcut
   const out = useMemo(() => kcalOut(acts, body), [acts, body])
   const inK = (meals ?? []).reduce((s, m) => s + m.kcal, 0)
-  const target = fuel?.kcal ?? out.total - deficit
+  // coach's deficit for today on top of the app's live burn (older reviews only had a fixed kcal)
+  const target = fuel?.deficit_kcal != null ? out.total - fuel.deficit_kcal : fuel?.kcal ?? out.total - deficit
   const left = target - inK
   const P = (meals ?? []).reduce((s, m) => s + (m.protein_g ?? 0), 0)
   const C = (meals ?? []).reduce((s, m) => s + (m.carbs_g ?? 0), 0)
@@ -46,7 +47,7 @@ export function FoodCard({ day, acts, body, deficit, fuel, openReq = 0 }: { day:
     : (() => { const p = body.weight * 1.6, f = body.weight * 0.9; return { p, f, c: Math.max(body.weight * 2, (target - p * 4 - f * 9) / 4) } })()
   const pct = Math.min(100, (inK / Math.max(1, out.total)) * 100), tPct = Math.min(100, (target / Math.max(1, out.total)) * 100)
   return (
-    <Card title="Food" sub={`Out ${num(out.total)} kcal = resting ${num(out.base)}${body.bmrFrom ? ` (InBody ${body.bmrFrom})` : ''} + training ${num(out.training)} · target ${num(target)}${fuel ? ' (coach)' : ` (${deficit} below)`}`}
+    <Card title="Food" sub={`Out ${num(out.total)} kcal = resting ${num(out.base)}${body.bmrFrom ? ` (InBody ${body.bmrFrom})` : ''} + training ${num(out.training)} · target ${num(target)}${fuel?.deficit_kcal != null ? ` (${fuel.deficit_kcal ? `${fuel.deficit_kcal} below, ` : 'no deficit, '}coach)` : fuel ? ' (coach)' : ` (${deficit} below)`}`}
       right={<button className="btn btn-primary !py-1.5 text-sm" onClick={() => setAdd(true)}><Icon name="plus" size={15} />Meal</button>}>
       {body.weightFrom !== 'weigh-in' && <p className="text-xs text-warn mb-2">Using {body.weightFrom === 'goal' ? `your goal weight (${body.weight} kg)` : `a guess of ${body.weight} kg`} — log today’s weight in the check-in above for a correct target.</p>}
       <div className="flex items-baseline justify-between text-sm mb-1">
