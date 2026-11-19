@@ -30,6 +30,10 @@ export default function Today() {
     const dayIds = acts.filter(a => a.date === day).map(a => a.id)
     const { data: reps } = dayIds.length ? await supabase.from('tr_session_reports').select('activity_id,report').in('activity_id', dayIds) : { data: [] }
     const reports = Object.fromEntries((reps ?? []).map(r => [r.activity_id, r.report]))
+    if (dayIds.length) {   // per-block detail only for the day shown
+      const { data: bl } = await supabase.from('tr_activities').select('id,blocks,extras').in('id', dayIds)
+      for (const b of bl ?? []) Object.assign(acts.find(a => a.id === b.id) ?? {}, { blocks: b.blocks, extras: b.extras })
+    }
     return { planned, acts, well, phases, events, pending, run, settings, sets, weekly, reports, scans }
   }, [day])
   useSynced(reload)

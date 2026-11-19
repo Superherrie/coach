@@ -1,5 +1,7 @@
 // tr-sync — pulls Garmin data from intervals.icu into the tr_ tables.
-//   POST { days?: number }   (default 10; first run back-fills 180)
+//   POST { days?: number, blocks?: number }   (default 10; first run back-fills 180)
+//   Each sync also fetches per-block detail (laps / intervals) for up to `blocks` sessions that don't have it yet (default 25),
+//   newest first, and refreshes it for sessions from the last 2 days (intervals.icu may still be re-analysing them).
 // Auth: a member's JWT (the app's "Sync now") or x-cron-token = TR_CRON_TOKEN (the 05:15 schedule).
 // Activities that intervals.icu got from Strava are skipped: Strava does not allow them to be passed on (or to an AI).
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -30,6 +32,39 @@ function pacesFrom(m: number, s: number, source: string, date: string) {
   const v = vdotFrom(m, s), mar = predictT(v, 42195);
   return { vdot: Math.round(v * 10) / 10, source, date, easy: [spk(velFor(v * 0.70)), spk(velFor(v * 0.62))], marathon: Math.round(mar / 42.195),
     threshold: spk(velFor(v * 0.88)), interval: spk(velFor(v * 0.975)), predict: { "10 km": predictT(v, 10000), "Half": predictT(v, 21097), "Marathon": mar, "50 km": predictT(v, 50000) } };
+}
+
+// ---- per-block detail (laps / work + recovery intervals) from intervals.icu ----
+const r1 = (x: unknown, d = 0) => (x == null || x === "" || !isFinite(Number(x)) ? null : Math.round(Number(x) * 10 ** d) / 10 ** d);
+const spkm = (mps: unknown) => (mps && Number(mps) > 0.5 ? Math.round(1000 / Number(mps)) : null);   // m/s → s per km
+// deno-lint-ignore no-explicit-any
+export function blocksOf(d: any, sport: string) {
+  const run = sport === "run";
+  // deno-lint-ignore no-explicit-any
+  const blocks = ((d.icu_intervals ?? []) as any[]).filter((i) => Number(i.moving_time) >= 20).map((i, n) => {
+    const b: Record<string, unknown> = {
+      n: n + 1, type: i.type ?? null, label: i.label || null, start_s: r1(i.start_time), min: r1(Number(i.moving_time) / 60, 1),
+      km: i.distance ? r1(Number(i.distance) / 1000, 2) : null,
+      hr: r1(i.average_heartrate), min_hr: r1(i.min_heartrate), max_hr: r1(i.max_heartrate),
+      cad: r1(i.average_cadence), elev_m: r1(i.total_elevation_gain), grad: r1(i.average_gradient, 1),
+      resp: r1(i.average_respiration, 1), decoupling: r1(i.decoupling, 1), zone: i.zone ?? null, intensity: r1(i.intensity), load: r1(i.training_load),
+    };
+    if (run) { b.pace_s = spkm(i.average_speed); b.gap_s = spkm(i.gap); b.stride_m = r1(i.average_stride, 2); }
+    else { b.w = r1(i.average_watts); b.np = r1(i.weighted_average_watts); b.max_w = r1(i.max_watts); b.torque = r1(i.average_torque, 1); b.kmh = i.average_speed ? r1(Number(i.average_speed) * 3.6, 1) : null; }
+    if (b.hr && (b.w || b.pace_s)) b.ef = b.w ? r1(Number(b.w) / Number(b.hr), 2) : r1((60000 / Number(b.pace_s)) / Number(b.hr), 2);   // W per beat, or m/min per beat
+    for (const k of Object.keys(b)) if (b[k] == null) delete b[k];
+    return b;
+  });
+  const extras: Record<string, unknown> = {
+    hr_recovery: d.icu_hrr ?? null, variability_index: r1(d.icu_variability_index, 2), power_hr: r1(d.icu_power_hr, 2),
+    power_hr_z2: r1(d.icu_power_hr_z2, 2), trimp: r1(d.trimp), warmup_s: d.icu_warmup_time ?? null, cooldown_s: d.icu_cooldown_time ?? null,
+    cadence: r1(d.average_cadence), temp_c: r1(d.average_temp, 1), feels_like_c: r1(d.average_feels_like, 1), joules_above_ftp: d.icu_joules_above_ftp ?? null,
+    max_wbal_depletion: d.icu_max_wbal_depletion ?? null, rolling_ftp: d.icu_rolling_ftp ?? null, stride_m: r1(d.average_stride, 2),
+    vertical_ratio: r1(d.average_vertical_ratio, 1), ground_contact_ms: r1(d.average_stance_time), summary: d.interval_summary ?? null,
+    strain: r1(d.strain_score), lap_count: d.icu_lap_count ?? null,
+  };
+  for (const k of Object.keys(extras)) if (extras[k] == null) delete extras[k];
+  return { blocks, extras };
 }
 
 Deno.serve(async (req) => {
@@ -148,6 +183,22 @@ async function syncOne(admin: any, uid: string, body: Record<string, unknown>, k
     const doneIds = aRows.map((r) => r.planned_id).filter(Boolean);
     if (doneIds.length) await admin.from("tr_planned").update({ status: "done" }).in("id", doneIds);
 
+    // per-block detail: recent sessions (last 2 days) are refreshed, then older ones without it, newest first
+    let blocksFetched = 0;
+    {
+      const limit = Math.min(200, Number(body.blocks ?? 25));
+      const { data: need } = await admin.from("tr_activities").select("id,sport,date,blocks_at").eq("user_id", uid).eq("source", "icu")
+        .or(`blocks_at.is.null,date.gte.${ymd(new Date(Date.parse(newest) - 2 * 864e5))}`).order("date", { ascending: false }).limit(limit);
+      for (const a of need ?? []) {
+        const r = await fetch(`https://intervals.icu/api/v1/activity/${a.id}?intervals=true`, { headers: { Authorization: auth, Accept: "application/json", "User-Agent": "Mozilla/5.0 (coach app)" } });
+        if (r.status === 429) break;                       // rate-limited: the next sync carries on
+        if (!r.ok) { await admin.from("tr_activities").update({ blocks_at: new Date().toISOString(), blocks: [] }).eq("id", a.id); continue; }
+        const { blocks, extras } = blocksOf(await r.json(), a.sport);
+        await admin.from("tr_activities").update({ blocks, extras, blocks_at: new Date().toISOString() }).eq("id", a.id);
+        blocksFetched++;
+      }
+    }
+
     // anything planned before today with no session against it counts as skipped (rest days stay as they are)
     const { data: linked } = await admin.from("tr_activities").select("planned_id").eq("user_id", uid).gte("date", oldest).not("planned_id", "is", null);
     const linkedIds = new Set((linked ?? []).map((l) => l.planned_id));
@@ -187,7 +238,7 @@ async function syncOne(admin: any, uid: string, body: Record<string, unknown>, k
     // a session imported earlier from Strava history and now delivered by Garmin: keep the Garmin copy
     const { data: deduped } = await admin.rpc("tr_dedupe_strava", { p_user: uid });
 
-    const detail = { oldest, newest, wellness: wRows.length, activities: aRows.length, skipped_strava: skippedStrava, missed: missed.length, replaced_strava: deduped ?? 0, paces_updated: pacesUpdated, reports };
+    const detail = { oldest, newest, wellness: wRows.length, activities: aRows.length, skipped_strava: skippedStrava, missed: missed.length, replaced_strava: deduped ?? 0, paces_updated: pacesUpdated, reports, blocks: blocksFetched };
     await admin.from("tr_sync_log").insert({ user_id: uid, kind, ok: true, detail });
     return { ok: true, ...detail };
   } catch (e) {

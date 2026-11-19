@@ -15,7 +15,8 @@ export async function fetchAll<T>(build: () => any): Promise<T[]> {
 }
 
 export const getPlanned = (from: string, to: string) => fetchAll<Planned>(() => supabase.from('tr_planned').select('*').gte('date', from).lte('date', to).order('date').order('slot'))
-export const getActs = (from: string, to: string) => fetchAll<Activity>(() => supabase.from('tr_activities').select('id,source,date,start_local,slot,sport,name,trainer,duration_s,distance_m,elev_m,avg_hr,max_hr,avg_watts,np_watts,ftp,avg_pace_s,gap_pace_s,load,intensity,ef,decoupling,calories,rpe,feel,hr_zone_s,notes,planned_id').gte('date', from).lte('date', to).order('date').order('start_local'))
+/** blocks (per-lap detail) are heavy: only asked for on short ranges (a week, a day) */
+export const getActs = (from: string, to: string, blocks = false) => fetchAll<Activity>(() => supabase.from('tr_activities').select('id,source,date,start_local,slot,sport,name,trainer,duration_s,distance_m,elev_m,avg_hr,max_hr,avg_watts,np_watts,ftp,avg_pace_s,gap_pace_s,load,intensity,ef,decoupling,calories,rpe,feel,hr_zone_s,notes,planned_id' + (blocks ? ',blocks,extras' : '')).gte('date', from).lte('date', to).order('date').order('start_local'))
 export const getWellness = (from: string, to: string) => fetchAll<Wellness>(() => supabase.from('tr_wellness').select('*').gte('date', from).lte('date', to).order('date'))
 export const getSets = (from: string) => fetchAll<GymSet>(() => supabase.from('tr_gym_sets').select('*').gte('date', from).order('date').order('set_no'))
 /** the signed-in user's id (RLS already limits every table to their own rows; writes that need a filter use this) */

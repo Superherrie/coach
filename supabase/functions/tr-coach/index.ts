@@ -21,7 +21,7 @@ const sastToday = () => ymd(new Date(Date.now() + 2 * 3600e3));
 const SYSTEM = `You are the training coach inside a personal training app. You plan and adjust two sessions a day (morning "am" and afternoon "pm"; often one is rest) towards the athlete's goal. Who the athlete is, their goal and the principles to follow are in the ATHLETE PROFILE that follows these instructions; the athlete's name is given there.
 
 DATA YOU GET (per athlete, in the JSON)
-- Plan, sessions done (Garmin via intervals.icu, or logged by hand), morning check-in (legs, energy, pain), resting HR / HRV / sleep, gym sets.
+- Plan, sessions done (Garmin via intervals.icu, or logged by hand; sessions from the last 14 days carry "blocks": each lap or work/recovery interval with min, km, avg/min/max HR, watts, NP, max watts, cadence, pace_s/gap_s (s per km), elev, gradient, respiration, decoupling, ef = W per beat (ride) or m/min per beat (run) — judge execution and fitness from the blocks: HR cost of each rep at the same output, fade or drift across reps, pacing of laps, hills; plus "extras": hr_recovery, variability_index, power_hr, trimp, temperature), morning check-in (legs, energy, pain), resting HR / HRV / sleep, gym sets.
 - food_last_14_days: meals logged (estimated from photos or dictation, ±15–20%); unlogged days are not zero days. Flag under-fuelling before long or hard sessions; keep any deficit moderate; one concrete lever beats a diet plan.
 - body_composition: tape (US Navy) and progress-photo body-fat estimates, plus InBody scans (measured muscle kg, fat kg, %, visceral level, BMR, ECW ratio — the most reliable of the three) — numbers only. A rising ECW ratio (>0.390) can mean inflammation or overreaching. Read the trend with weight; never treat one reading as a trend.
 - settings.paces: the athlete's training paces (Daniels VDOT from a race or time trial): easy range, marathon, tempo (threshold), intervals, in seconds per km. Prescribe run targets from these; Johannesburg results include altitude.
@@ -130,7 +130,7 @@ Deno.serve(async (req) => {
       admin.from("tr_phases").select("name,start_date,end_date,focus,run_km_from,run_km_to,long_run_from,long_run_to,leg_sessions,key_sessions,strength_emphasis").eq("user_id", uid).order("start_date"),
       admin.from("tr_events").select("date,name,kind,distance_km,purpose,target,on_track,borderline,rethink,result").eq("user_id", uid).order("date"),
       admin.from("tr_planned").select("id,date,slot,sport,title,description,duration_min,distance_km,intensity,targets,planned_load,status,locked,source,change_note").eq("user_id", uid).gte("date", from).lte("date", to).order("date"),
-      admin.from("tr_activities").select("date,slot,sport,name,duration_s,distance_m,elev_m,avg_hr,max_hr,avg_watts,np_watts,avg_pace_s,gap_pace_s,load,ef,decoupling,rpe,notes,planned_id,trainer,calories").eq("user_id", uid).gte("date", loadFrom).order("date"),
+      admin.from("tr_activities").select("date,slot,sport,name,duration_s,distance_m,elev_m,avg_hr,max_hr,avg_watts,np_watts,avg_pace_s,gap_pace_s,load,ef,decoupling,rpe,notes,planned_id,trainer,calories,blocks,extras").eq("user_id", uid).gte("date", loadFrom).order("date"),
       admin.from("tr_wellness").select("date,resting_hr,hrv,sleep_h,weight_kg,waist_cm,legs,energy,ankle_pain,notes").eq("user_id", uid).gte("date", addDays(today, -42)).order("date"),
       admin.from("tr_gym_sets").select("date,exercise,set_no,reps,kg").eq("user_id", uid).gte("date", addDays(today, -35)).order("date"),
       admin.from("tr_proposals").select("id,created_at,title,why,changes").eq("user_id", uid).eq("status", "pending"),
@@ -181,6 +181,8 @@ Deno.serve(async (req) => {
       km: a.distance_m ? Math.round(a.distance_m / 100) / 10 : null, elev: a.elev_m, hr: a.avg_hr, hr_max: a.max_hr,
       watts: a.avg_watts, np: a.np_watts, pace: a.avg_pace_s ? `${Math.floor(a.avg_pace_s / 60)}:${String(Math.round(a.avg_pace_s % 60)).padStart(2, "0")}/km` : null,
       load: actLoad(a), ef: a.ef, decoupling: a.decoupling, rpe: a.rpe, notes: a.notes, indoor: a.trainer, planned_id: a.planned_id,
+      // per-block detail for the last 14 days (older sessions: averages only, to keep the request small)
+      ...(a.date >= addDays(today, -14) ? { blocks: a.blocks ?? undefined, extras: a.extras ?? undefined } : {}),
     }));
     const context = {
       today, weekday: new Date(today).toLocaleDateString("en-ZA", { weekday: "long" }),

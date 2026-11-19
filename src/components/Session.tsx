@@ -1,3 +1,4 @@
+import { BlocksTable, RepLine } from './Blocks'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { callFn, getSettings, useLoad } from '../lib/data'
@@ -83,6 +84,7 @@ export function SessionCard({ slot, p, acts, onLog, onEdit, onOpenAct, paces, re
             <button key={a.id} onClick={() => onOpenAct(a)} className="mt-2 w-full text-left rounded-xl bg-surface-2 px-3 py-2 text-xs">
               <span className="font-medium text-ink">{a.source === 'manual' ? 'Logged' : a.source === 'strava' ? 'Strava' : 'Garmin'}{a.name && a.source !== 'manual' ? ` · ${a.name}` : ''}</span>
               <span className="block text-muted num mt-0.5">{actualLine(a)}</span>
+              <RepLine a={a} />
               {reports?.[a.id] && <span className="block mt-1.5 text-ink"><span className="text-brand">📊 </span>{reports[a.id].headline}</span>}
             </button>
           ))}
@@ -158,6 +160,7 @@ export function LogSheet({ date, slot, planned, act, existingSets, lastKg, onClo
     <Sheet title={act ? (manual ? 'Logged session' : act.name || 'Garmin session') : 'Log a session'} onClose={onClose}
       footer={<div className="flex gap-2">{act?.source === 'manual' && <button className="btn btn-ghost text-bad" onClick={() => void remove()}><Icon name="trash" size={16} /></button>}<button className="btn btn-primary flex-1" disabled={busy} onClick={() => void save()}>{busy ? 'Saving…' : 'Save'}</button></div>}>
       {act && <ReportView act={act} />}
+      {act && <BlocksTable a={act} />}
       {planned && <p className="text-xs text-muted mb-3">Planned: {planned.title}</p>}
       {!manual && <p className="text-xs text-muted mb-3 num">{dmy(act!.date)} · {actualLine(act!)}. Times, distance and HR come from {act!.source === 'strava' ? 'Strava' : 'Garmin'} — add how it felt, and the kg for a gym session.</p>}
       <div className="space-y-3">

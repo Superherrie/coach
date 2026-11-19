@@ -15,7 +15,7 @@ export default function Plan() {
   const [wk, setWk] = useState(monday(today()))
   const end = addDays(wk, 6)
   const { data, reload } = useLoad(async () => {
-    const [planned, acts, phases, events, sets, settings] = await Promise.all([getPlanned(wk, end), getActs(wk, end), getPhases(), getEvents(), getSets(addDays(wk, -90)), getSettings()])
+    const [planned, acts, phases, events, sets, settings] = await Promise.all([getPlanned(wk, end), getActs(wk, end, true), getPhases(), getEvents(), getSets(addDays(wk, -90)), getSettings()])
     return { planned, acts, phases, events, sets, paces: (settings.paces ?? null) as Paces | null }
   }, [wk])
   useSynced(reload)
