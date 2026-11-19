@@ -20,7 +20,7 @@ export default function Coach() {
       supabase.from('tr_planned').select('*').eq('source', 'coach').order('updated_at', { ascending: false }).limit(10),
       supabase.from('tr_coach_runs').select('*').eq('kind', 'weekly').not('summary', 'is', null).order('created_at', { ascending: false }).limit(1),
     ])
-    return { chat: (chat.data ?? []).reverse() as { id: number; role: string; content: string; created_at: string }[], pending, runs: (runs.data ?? []) as CoachRun[], changed: (changed.data ?? []) as (Planned & { updated_at: string })[], weekly: (weekly.data?.[0] ?? null) as CoachRun | null }
+    return { chat: (chat.data ?? []).reverse() as { id: number; role: string; content: string; created_at: string; meta: { saved?: string[]; retired?: string[] } | null }[], pending, runs: (runs.data ?? []) as CoachRun[], changed: (changed.data ?? []) as (Planned & { updated_at: string })[], weekly: (weekly.data?.[0] ?? null) as CoachRun | null }
   }, [])
   const [msg, setMsg] = useState(''); const [busy, setBusy] = useState<string>(); const [err, setErr] = useState<string>()
   const end = useRef<HTMLDivElement>(null)
@@ -67,7 +67,11 @@ export default function Coach() {
           {!data.chat.length && <div className="flex flex-wrap gap-1.5">{SUGGEST.map(s => <button key={s} className="chip !py-1.5 !text-xs text-left" onClick={() => void send(s)}>{s}</button>)}</div>}
           {data.chat.map(c => (
             <div key={c.id} className={`flex ${c.role === 'user' ? 'justify-end' : ''}`}>
-              <p className={`rounded-2xl px-3.5 py-2 text-sm whitespace-pre-line max-w-[85%] ${c.role === 'user' ? 'bg-brand text-surface rounded-br-md' : 'bg-surface-2 rounded-bl-md'}`}>{c.content}</p>
+              <div className="max-w-[85%]">
+                <p className={`rounded-2xl px-3.5 py-2 text-sm whitespace-pre-line ${c.role === 'user' ? 'bg-brand text-surface rounded-br-md' : 'bg-surface-2 rounded-bl-md'}`}>{c.content}</p>
+                {c.meta?.saved?.map(x => <p key={x} className="text-[11px] text-brand mt-1 flex gap-1"><Icon name="spark" size={12} className="shrink-0 mt-px" />Remembered: {x}</p>)}
+                {c.meta?.retired?.map(x => <p key={x} className="text-[11px] text-muted mt-1 line-through">{x}</p>)}
+              </div>
             </div>
           ))}
           {busy === 'chat' && <p className="text-sm text-muted animate-pulse">Coach is thinking…</p>}

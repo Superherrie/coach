@@ -25,6 +25,7 @@ DATA YOU GET (per athlete, in the JSON)
 - food_last_14_days: meals logged (estimated from photos or dictation, ±15–20%); unlogged days are not zero days. Flag under-fuelling before long or hard sessions; keep any deficit moderate; one concrete lever beats a diet plan.
 - body_composition: tape (US Navy) and progress-photo body-fat estimates, plus InBody scans (measured muscle kg, fat kg, %, visceral level, BMR, ECW ratio — the most reliable of the three) — numbers only. A rising ECW ratio (>0.390) can mean inflammation or overreaching. Read the trend with weight; never treat one reading as a trend.
 - settings.paces: the athlete's training paces (Daniels VDOT from a race or time trial): easy range, marathon, tempo (threshold), intervals, in seconds per km. Prescribe run targets from these; Johannesburg results include altitude.
+- coach_memory: standing decisions, facts and preferences the athlete agreed with you or told you (id, date, text, expires_on). They are binding: follow them in every review and answer, and they override your defaults and the profile where they conflict. Never re-introduce something a memory item rules out.
 - workout_library: guided workouts; schedule them as sport "mobility" (or as fits) with targets.workout_id set.
 
 LOAD UNITS
@@ -63,8 +64,15 @@ const Daily = z.object({
   proposal_title: z.string().nullable().describe("title for the big changes, if any"),
   changes: z.array(Change),
 });
+const Memory = z.object({
+  text: z.string().describe("one self-contained line in the third person, e.g. 'No hip mobility sessions until Herman asks for them' or 'Away in Cape Town 3–7 Dec: hotel gym only'"),
+  kind: z.enum(["decision", "fact", "preference", "constraint"]),
+  expires_on: z.string().nullable().describe("YYYY-MM-DD when it stops applying (trips, temporary injuries, race-week rules); null if it lasts"),
+});
 const Chat = z.object({
   reply: z.string().describe("the answer to the athlete, phone-length"),
+  remember: z.array(Memory).describe("ONLY lasting things from this exchange that future reviews must know: a decision you agreed, a preference, a constraint (travel, injury, equipment, availability), a fact about the athlete. Not small talk, not one-off answers, not anything already in coach_memory or the profile. Usually empty."),
+  forget: z.array(z.number().int()).describe("ids of coach_memory items this exchange makes outdated or the athlete cancelled"),
   proposal_title: z.string().nullable(),
   changes: z.array(Change).describe("only if he asked for a plan change or the answer requires one; these come to him as a proposal to accept"),
 });
@@ -142,6 +150,9 @@ Deno.serve(async (req) => {
     const { data: bodyRows } = await admin.from("tr_wellness").select("date,weight_kg,waist_cm,neck_cm").eq("user_id", uid).gte("date", addDays(today, -120)).order("date");
     const { data: photoReads } = await admin.from("tr_body_photos").select("date,weight_kg,ai").eq("user_id", uid).gte("date", addDays(today, -365)).order("date");
     const { data: scans } = await admin.from("tr_inbody").select("date,weight_kg,smm_kg,bfm_kg,pbf,ffm_kg,ecw_ratio,visceral_level,bmr_kcal,segments").eq("user_id", uid).gte("date", addDays(today, -365)).order("date");
+    const { data: memRows } = await admin.from("tr_coach_memory").select("id,created_at,text,kind,expires_on").eq("user_id", uid).eq("active", true)
+      .or(`expires_on.is.null,expires_on.gte.${today}`).order("created_at");
+    const memory = (memRows ?? []).map((m) => ({ id: m.id, date: String(m.created_at).slice(0, 10), kind: m.kind, text: m.text, expires_on: m.expires_on }));
     const profile = profileOf(settings.data?.coach_profile);
     const h = Number(settings.data?.height_cm ?? 0);
     let neck: number | null = null, waist: number | null = null;
@@ -196,6 +207,7 @@ Deno.serve(async (req) => {
       body_composition,
       load_last_28_days: pmc.slice(-28),
       pending_proposals: pending.data,
+      coach_memory: memory,
     };
 
     // ---- chart insight: read-only analysis of one Trends chart, never changes the plan ----
@@ -253,6 +265,8 @@ ${JSON.stringify(context)}`
         mine: (planned.data ?? []).filter((p) => p.source !== "coach" && p.date >= recent).map((p) => [p.id, p.date, p.slot, p.title, p.duration_min, p.distance_km, p.status, p.locked]),
         pending: (pending.data ?? []).map((p) => p.id),
         meals: (meals.data ?? []).filter((m) => m.date >= addDays(today, -1)).map((m) => [m.date, m.kcal]),
+        memory: memory.map((m) => [m.id, m.text, m.expires_on]),
+        notes: settings.data?.notes ?? null,
       };
       const h = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(JSON.stringify(basis)));
       sig = [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -313,8 +327,25 @@ ${JSON.stringify(context)}`
     }
     const summary = review ? out.summary : out.reply;
     await admin.from("tr_coach_runs").update({ summary, today_note: out.today_note ?? null, model, usage: { ...res.usage, applied: applied.length, proposed: proposed.length } }).eq("id", runId);
-    if (mode === "chat") await admin.from("tr_chat").insert({ user_id: uid, role: "assistant", content: out.reply });
-    return json({ ok: true, summary, today_note: out.today_note ?? null, applied, proposal_id: proposalId, proposed: proposed.length, model, usage: res.usage });
+    // chat → save lasting decisions / retire outdated ones
+    let memMeta: { saved: string[]; retired: string[] } | null = null;
+    if (mode === "chat") {
+      const saved: string[] = [], retired: string[] = [];
+      for (const m of out.remember ?? []) {
+        if (!m.text?.trim()) continue;
+        const exp = m.expires_on && /^\d{4}-\d{2}-\d{2}$/.test(m.expires_on) ? m.expires_on : null;
+        const { error } = await admin.from("tr_coach_memory").insert({ user_id: uid, text: m.text.trim(), kind: m.kind, expires_on: exp, source: "chat" });
+        if (!error) saved.push(m.text.trim());
+      }
+      const ids = (out.forget ?? []).filter((id) => memory.some((m) => m.id === id));
+      if (ids.length) {
+        await admin.from("tr_coach_memory").update({ active: false, updated_at: new Date().toISOString() }).in("id", ids).eq("user_id", uid);
+        retired.push(...memory.filter((m) => ids.includes(m.id)).map((m) => m.text));
+      }
+      if (saved.length || retired.length) memMeta = { saved, retired };
+      await admin.from("tr_chat").insert({ user_id: uid, role: "assistant", content: out.reply, meta: memMeta });
+    }
+    return json({ ok: true, summary, today_note: out.today_note ?? null, memory: memMeta, applied, proposal_id: proposalId, proposed: proposed.length, model, usage: res.usage });
   } catch (e) {
     const msg = e instanceof Anthropic.RateLimitError ? "Claude is rate-limited — try again in a minute"
       : e instanceof Anthropic.AuthenticationError ? "The ANTHROPIC_API_KEY was rejected — check the Supabase secret"

@@ -5,6 +5,7 @@ import ApiSpend from '../components/ApiSpend'
 import { callFn, getSettings, myId, useLoad } from '../lib/data'
 import Users from '../components/Users'
 import PacesCard from '../components/PacesCard'
+import CoachMemory from '../components/CoachMemory'
 import type { Paces } from '../lib/paces'
 import { stamp } from '../lib/format'
 import { supabase } from '../lib/supabase'
@@ -83,9 +84,12 @@ export default function Settings() {
         <label className="block mt-3"><span className="label">Sex</span>
           <select className="input mt-1" value={f.sex ?? ''} onChange={e => setF({ ...f, sex: e.target.value })}><option value="">—</option><option value="male">Male</option><option value="female">Female</option></select></label>
         <label className="block mt-3"><span className="label">About you for the coach — goal, event and date, history, injuries, weekly availability</span>
+          <span className="block text-[11px] text-muted">Your permanent profile. Change it when something fundamental changes.</span>
           <textarea className="input mt-1 text-sm" rows={6} value={f.coach_profile ?? ''} onChange={e => setF({ ...f, coach_profile: e.target.value })} placeholder="e.g. Goal: Two Oceans half marathon, 11 Apr 2027, under 2:10. Running 3×/week, 25 km. Old knee niggle on long downhills. Gym Mon/Thu evenings." /></label>
-        <label className="block mt-3"><span className="label">Notes for the coach</span><textarea className="input mt-1" rows={3} value={f.notes ?? ''} onChange={e => setF({ ...f, notes: e.target.value })} placeholder="e.g. Away 3–7 Dec, gym closed on Sundays, prefer long runs Saturday" /></label>
+        <label className="block mt-3"><span className="label">Notes for the coach</span><span className="block text-[11px] text-muted">Short practical notes. Decisions from chat go to Coach memory below by themselves.</span><textarea className="input mt-1" rows={3} value={f.notes ?? ''} onChange={e => setF({ ...f, notes: e.target.value })} placeholder="e.g. Away 3–7 Dec, gym closed on Sundays, prefer long runs Saturday" /></label>
       </Card>
+
+      <CoachMemory />
 
       <Card title="Coach">
         <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={f.coach_auto ?? true} onChange={e => setF({ ...f, coach_auto: e.target.checked })} />
