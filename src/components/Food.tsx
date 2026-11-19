@@ -63,6 +63,8 @@ export function FoodCard({ day, acts, body, deficit, fuel, openReq = 0 }: { day:
         <MacroBar label="Carbs" eaten={C} target={mt.c} color="var(--s4)" />
         <MacroBar label="Fat" eaten={F} target={mt.f} color="var(--s7)" />
       </div>
+      {(() => { const mk = Math.round(P * 4 + C * 4 + F * 9), other = Math.round(inK - mk); return other > 50 ? (
+        <p className="text-[11px] text-muted mt-1.5 num">Macros {num(mk)} kcal + {num(other)} kcal not counted as protein, carbs or fat (alcohol, fibre, rounding) = {num(inK)} kcal in.</p>) : null })()}
       <p className="text-[11px] text-muted mt-1.5">{fuel ? <><span className="text-brand">Coach: </span>{fuel.why}</> : `Default split: protein 1.6 g/kg, fat 0.9 g/kg, carbs the rest. The coach sets day-specific targets in its morning review.`}</p>
       <ul className="mt-3 divide-y divide-line">
         {(meals ?? []).map(m => (
