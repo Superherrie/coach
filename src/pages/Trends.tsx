@@ -120,6 +120,9 @@ export default function Trends() {
 
   if (!data || !v) return <p className="text-muted py-10 text-center animate-pulse">Loading…</p>
   const h = data.settings.height_cm
+  // with only a few weigh-ins, start the weight chart a few days before the first one so the dots aren't squeezed into the right edge
+  const firstKg = v.well.findIndex(w => w.kg)
+  const weightRows = firstKg >= 0 && v.well.filter(w => w.kg).length < 14 ? v.well.slice(Math.max(0, firstKg - 5)) : v.well
   const whtr = v.lastWaist && h ? v.lastWaist / h : null
   const avgPct = (() => { const z = v.zones.slice(-4); return z.length ? Math.round(z.reduce((s, x) => s + x.easy, 0) / z.length) : null })()
   const range = RANGES.find(r => r.k === days)?.l ?? `${days} days`
@@ -240,11 +243,11 @@ export default function Trends() {
           {v.well.some(w => w.kg) ? <>
             <Legend items={[{ label: 'Weigh-in', color: 'var(--s2)' }, { label: '7-day', color: 'var(--ink)' }, { label: 'Goal', color: 'var(--good)', dashed: true }]} />
             <FitChart height={170}>
-              <LineChart data={v.well} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
-                <CartesianGrid {...GRID} /><XAxis dataKey="date" {...AXIS} tickFormatter={tick} minTickGap={40} /><YAxis {...AXIS} domain={[(min: number) => Math.min(min, data.settings.goal_weight_kg ?? 91) - 1, 'dataMax + 1']} />
+              <LineChart data={weightRows} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+                <CartesianGrid {...GRID} /><XAxis dataKey="date" {...AXIS} tickFormatter={tick} minTickGap={40} /><YAxis {...AXIS} domain={[(min: number) => Math.floor(Math.min(min, Number(data.settings.goal_weight_kg ?? 91)) - 1), (max: number) => Math.ceil(max + 1)]} />
                 <Tooltip content={<Tip labelFormat={tick} fmt={x => `${x} kg`} />} />
-                <ReferenceLine y={data.settings.goal_weight_kg ?? 91} stroke="var(--good)" strokeDasharray="4 4" />
-                <Line dataKey="kg" name="Weight" stroke="var(--s2)" strokeWidth={0} dot={{ r: 3 }} connectNulls={false} />
+                <ReferenceLine y={Number(data.settings.goal_weight_kg ?? 91)} stroke="var(--good)" strokeDasharray="4 4" />
+                <Line dataKey="kg" name="Weight" stroke="var(--s2)" strokeWidth={0} dot={{ r: 4, fill: 'var(--s2)', stroke: 'var(--surface)', strokeWidth: 1.5 }} connectNulls={false} isAnimationActive={false} />
                 <Line dataKey="kg7" name="7-day" stroke="var(--ink)" strokeWidth={2} dot={false} connectNulls />
               </LineChart>
             </FitChart></> : <Empty>Log weight in the check-in (or a Garmin scale syncs it).</Empty>}
