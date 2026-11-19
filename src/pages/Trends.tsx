@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Area, Bar, BarChart, CartesianGrid, ComposedChart, Line, LineChart, ReferenceLine, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from 'recharts'
+import { Area, Bar, BarChart, CartesianGrid, Cell, ComposedChart, Line, LineChart, ReferenceLine, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from 'recharts'
 import { AXIS, Card, Empty, FitChart, GRID, Legend, Stat, Tip } from '../components/ui'
 import { fetchAll, getActs, getEvents, getPlanned, getSets, getSettings, getWellness, useLoad } from '../lib/data'
 import { supabase } from '../lib/supabase'
@@ -20,7 +20,7 @@ export default function Trends() {
   const t = today(), from = addDays(t, -days), warm = addDays(from, -120)
   const { data, reload } = useLoad(async () => {
     const [acts, well, planned, sets, settings, events, meals] = await Promise.all([getActs(warm, t), getWellness(from, t), getPlanned(from, addDays(t, 210)), getSets(from), getSettings(), getEvents(),
-      fetchAll<{ date: string; kcal: number; protein_g: number | null }>(() => supabase.from('tr_meals').select('date,kcal,protein_g').gte('date', from).order('date'))])
+      fetchAll<{ date: string; kcal: number; protein_g: number | null; carbs_g: number | null; fat_g: number | null }>(() => supabase.from('tr_meals').select('date,kcal,protein_g,carbs_g,fat_g').gte('date', from).order('date'))])
     const { data: photos } = await supabase.from('tr_body_photos').select('date,ai').gte('date', from).order('date')
     const { data: scans } = await supabase.from('tr_inbody').select('date,weight_kg,smm_kg,bfm_kg,pbf,visceral_level,bmr_kcal').gte('date', addDays(from, -120)).order('date')
     return { acts, well, planned, sets, settings, events, meals, scans: (scans ?? []) as { date: string; weight_kg: number | null; smm_kg: number | null; bfm_kg: number | null; pbf: number | null; visceral_level: number | null; bmr_kcal: number | null }[], photos: (photos ?? []) as { date: string; ai: { usable: boolean; bf_low: number; bf_high: number; bf_best: number } | null }[] }
@@ -115,7 +115,24 @@ export default function Trends() {
 
     // FTP as intervals.icu saw it on each ride
     const ftp = data.acts.filter(a => a.date >= from && a.sport === 'ride' && a.ftp).map(a => ({ date: a.date, ftp: a.ftp }))
-    return { bf, inbody, cal, pm, atRace, nowP, ramp, wk, well, lastKg, lastWaist, easyRuns, easyRides, zones, gym, liftsSeen, ftp, race }
+    // daily balance on logged days: intake split by macro (kcal), burn, target (burn − deficit), net
+    const deficit = Number(data.settings.kcal_deficit ?? 500)
+    const dayMap = new Map<string, { p: number; c: number; f: number; kcal: number }>()
+    for (const m of data.meals) { const x = dayMap.get(m.date) ?? { p: 0, c: 0, f: 0, kcal: 0 }; x.kcal += m.kcal; x.p += m.protein_g ?? 0; x.c += m.carbs_g ?? 0; x.f += m.fat_g ?? 0; dayMap.set(m.date, x) }
+    const calDays = [...dayMap.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([d, x]) => {
+      const out = kcalOut(data.acts.filter(a => a.date === d), bodyFrom(data.settings, data.well, d, data.scans)).total
+      const pk = Math.round(x.p * 4), ck = Math.round(x.c * 4), fk = Math.round(x.f * 9)
+      const other = Math.max(0, Math.round(x.kcal) - pk - ck - fk)   // alcohol / rounding
+      return { date: d, today: d === t, in: Math.round(x.kcal), pK: pk, cK: ck, fK: fk, oK: other, out, target: out - deficit, net: Math.round(x.kcal - out), protein: Math.round(x.p), carbs: Math.round(x.c), fat: Math.round(x.f) }
+    })
+    const full = calDays.filter(d => !d.today)          // today is still in progress
+    const avg = (k: 'in' | 'out' | 'net' | 'protein' | 'carbs') => (full.length ? Math.round(full.reduce((a, d) => a + d[k], 0) / full.length) : null)
+    const kgW = full.length ? +((full.reduce((a, d) => a + d.net, 0) / full.length) * 7 / KCAL_PER_KG).toFixed(2) : null
+    const kgs = data.well.filter(w => w.weight_kg && (!full.length || w.date >= full[0].date))
+    const actualKgW = kgs.length >= 2 && full.length ? +(((Number(kgs[kgs.length - 1].weight_kg) - Number(kgs[0].weight_kg)) / Math.max(1, (Date.parse(kgs[kgs.length - 1].date) - Date.parse(kgs[0].date)) / 864e5)) * 7).toFixed(2) : null
+    const calSum = { days: full.length, inAvg: avg('in'), outAvg: avg('out'), netAvg: avg('net'), protein: avg('protein'), carbs: avg('carbs'), kgW, actualKgW, deficit,
+      proteinAim: Math.round(bodyFrom(data.settings, data.well, t, data.scans).weight * 1.6) }
+    return { bf, inbody, cal, calDays, calSum, pm, atRace, nowP, ramp, wk, well, lastKg, lastWaist, easyRuns, easyRides, zones, gym, liftsSeen, ftp, race }
   }, [data, from, t, warm])
 
   if (!data || !v) return <p className="text-muted py-10 text-center animate-pulse">Loading…</p>
@@ -143,7 +160,7 @@ export default function Trends() {
     gym: { key: 'leg-strength', title: 'Leg strength', range, about: 'Best estimated one-rep max (Epley, from logged kg × reps) per session for the main leg lifts.', data: v.gym },
     compliance: { key: 'compliance', title: 'Plan compliance', range, about: 'Share of planned (non-rest) sessions done each week.', data: v.wk.filter(w => w.pct != null).map(w => ({ wk: w.wk, pct: w.pct })) },
     bodyfat: { key: 'body-fat', title: 'Body fat', range, about: 'Body-fat %: tape estimate (US Navy method from waist at navel, neck and height, ±3–4%) on each day with a waist reading, and visual reads of monthly progress photos (best estimate with low–high range, ±4–5%), and InBody scan readings (bioimpedance, most consistent of the three when conditions match). Weight is in the context; fat vs lean mass follows from weight × body fat.', data: { bf: v.bf, weight7: v.well.filter(w => w.kg7).map(w => ({ d: w.date, kg7: w.kg7 })) } },
-    calories: { key: 'calories', title: 'Calories in and out', range, about: 'Weekly averages per logged day: kcal eaten (meals read from photos/dictation, reviewed by Herman) vs kcal out (resting burn × non-exercise factor + Garmin session calories), net, protein, and the weight change that net implies (7,700 kcal ≈ 1 kg). Compare with the actual weight trend.', data: { weeks: v.cal, weight: v.well.filter(w => w.kg7).map(w => ({ d: w.date, kg7: w.kg7 })) } },
+    calories: { key: 'calories', title: 'Calories in and out', range, about: 'Weekly averages per logged day: kcal eaten (meals read from photos/dictation, reviewed by Herman) vs kcal out (resting burn × non-exercise factor + Garmin session calories), net, protein, and the weight change that net implies (7,700 kcal ≈ 1 kg). Compare with the actual weight trend.', data: { days: v.calDays.map(d => ({ d: d.date, in: d.in, out: d.out, target: d.target, net: d.net, p: d.protein, c: d.carbs, f: d.fat, partial: d.today || undefined })), weeks: v.cal, summary: v.calSum, weight: v.well.filter(w => w.kg7).map(w => ({ d: w.date, kg7: w.kg7 })) } },
     inbody: { key: 'inbody', title: 'InBody: muscle and fat', range, about: 'InBody scans: skeletal muscle mass kg, body fat mass kg and visceral fat level. During a fat-loss phase the goal is fat down with muscle holding.', data: v.inbody },
     ftp: { key: 'ftp', title: 'FTP', range, about: `FTP as intervals.icu applied it per ride; working value ${data.settings.ftp_w ?? 310} W.`, data: v.ftp },
   }
@@ -296,20 +313,7 @@ export default function Trends() {
         </Card>
       )}
 
-      <Card ai={AI.calories} title="Calories in and out" sub="Average per logged day, by week. Out = resting burn + Garmin session calories. Days without food logged are left out.">
-        {v.cal.length ? <>
-          <Legend items={[{ label: 'In (eaten)', color: 'var(--s4)', box: true }, { label: 'Out (burned)', color: 'var(--s2)' }]} />
-          <FitChart height={H}>
-            <ComposedChart data={v.cal} margin={{ top: 5, right: 5, left: -10, bottom: 0 }}>
-              <CartesianGrid {...GRID} /><XAxis dataKey="wk" {...AXIS} tickFormatter={tick} minTickGap={30} /><YAxis {...AXIS} />
-              <Tooltip content={<Tip labelFormat={l => `Week of ${tick(l)}`} fmt={x => `${num(x)} kcal`} />} />
-              <Bar dataKey="in" name="In" fill="var(--s4)" radius={[4, 4, 0, 0]} />
-              <Line dataKey="out" name="Out" stroke="var(--s2)" strokeWidth={2} dot={{ r: 3 }} />
-            </ComposedChart>
-          </FitChart>
-          {(() => { const last = v.cal[v.cal.length - 1]; return <p className="text-xs text-muted mt-1 num">Week of {tick(last.wk)}: {last.days} days logged · net {last.net > 0 ? '+' : ''}{num(last.net)} kcal/day ≈ {last.kgWeek > 0 ? '+' : ''}{last.kgWeek} kg/week · protein {num(last.protein)} g/day</p> })()}
-        </> : <Empty>Log meals on the Today screen and the weekly balance shows here.</Empty>}
-      </Card>
+      <CaloriesCard ai={AI.calories} days={v.calDays} weeks={v.cal} sum={v.calSum} />
 
       <div className="grid md:grid-cols-2 gap-4">
         <Card ai={AI.runEff} title="Easy-run efficiency" sub="Metres per minute per heartbeat on easy runs (higher = fitter at the same effort). Uses grade-adjusted pace where Garmin has it.">
@@ -387,5 +391,74 @@ export default function Trends() {
       )}
       <p className="text-[11px] text-muted text-center">Load is a TSS-like score: intervals.icu's figure where Garmin measured it, otherwise estimated from minutes × effort.</p>
     </div>
+  )
+}
+
+type CalDay = { date: string; today: boolean; in: number; pK: number; cK: number; fK: number; oK: number; out: number; target: number; net: number; protein: number; carbs: number; fat: number }
+type CalWeek = { wk: string; days: number; in: number; out: number; net: number; protein: number; kgWeek: number }
+type CalSum = { days: number; inAvg: number | null; outAvg: number | null; netAvg: number | null; protein: number | null; carbs: number | null; kgW: number | null; actualKgW: number | null; deficit: number; proteinAim: number }
+
+/** calories: daily (intake stacked by macro vs burn and target, net bar) or weekly averages */
+function CaloriesCard({ ai, days, weeks, sum }: { ai: Parameters<typeof Card>[0]['ai']; days: CalDay[]; weeks: CalWeek[]; sum: CalSum }) {
+  const [view, setView] = useState<'day' | 'week'>('day')
+  const shown = days.slice(-28)
+  const sign = (x: number | null, unit = '') => (x == null ? '—' : `${x > 0 ? '+' : ''}${num(x)}${unit}`)
+  return (
+    <Card ai={ai} title="Calories in and out"
+      sub={view === 'day' ? `Logged days (last 28). Bars = eaten, split by protein / carbs / fat. Line = burned, dashed = target (${sum.deficit} below burn). Today is still filling up.` : 'Average per logged day, by week.'}
+      right={<span className="flex rounded-full bg-surface-2 p-0.5 text-xs">{(['day', 'week'] as const).map(k => <button key={k} className={`px-2.5 py-1 rounded-full ${view === k ? 'bg-surface shadow font-medium' : 'text-muted'}`} onClick={() => setView(k)}>{k === 'day' ? 'Daily' : 'Weekly'}</button>)}</span>}>
+      {!days.length ? <Empty>Log meals on the Today screen and the balance shows here.</Empty> : <>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+          <Stat label="Eaten" value={sum.inAvg != null ? num(sum.inAvg) : '—'} sub={`kcal/day · ${sum.days} full day${sum.days === 1 ? '' : 's'}`} />
+          <Stat label="Burned" value={sum.outAvg != null ? num(sum.outAvg) : '—'} sub="kcal/day" />
+          <Stat label="Net" value={sign(sum.netAvg)} sub={sum.kgW != null ? `≈ ${sign(sum.kgW, ' kg')}/week${sum.actualKgW != null ? ` · scale ${sign(sum.actualKgW, ' kg')}` : ''}` : 'kcal/day'} tone={sum.netAvg != null && sum.netAvg < -1000 ? 'warn' : undefined} />
+          <Stat label="Protein" value={sum.protein != null ? `${sum.protein} g` : '—'} sub={`aim ~${sum.proteinAim} g · carbs ${sum.carbs ?? '—'} g`} tone={sum.protein != null && sum.protein < sum.proteinAim * 0.8 ? 'warn' : undefined} />
+        </div>
+        {view === 'day' ? <>
+          <Legend items={[{ label: 'Protein', color: 'var(--s1)', box: true }, { label: 'Carbs', color: 'var(--s4)', box: true }, { label: 'Fat', color: 'var(--s7)', box: true }, { label: 'Burned', color: 'var(--s2)' }, { label: 'Target', color: 'var(--good)', dashed: true }]} />
+          <FitChart height={H}>
+            <ComposedChart data={shown} margin={{ top: 5, right: 5, left: -10, bottom: 0 }}>
+              <CartesianGrid {...GRID} /><XAxis dataKey="date" {...AXIS} tickFormatter={tick} minTickGap={20} /><YAxis {...AXIS} />
+              <Tooltip content={({ active, payload }) => active && payload?.[0] ? (() => { const d = payload[0].payload as CalDay; return (
+                <div className="rounded-xl border border-line bg-surface px-3 py-2 text-xs shadow-lg num">
+                  <p className="font-semibold">{tick(d.date)}{d.today ? ' (so far)' : ''}</p>
+                  <p>Eaten {num(d.in)} · burned {num(d.out)} · target {num(d.target)}</p>
+                  <p className={d.net < 0 ? 'text-good' : 'text-bad'}>Net {d.net > 0 ? '+' : ''}{num(d.net)} kcal</p>
+                  <p className="text-muted">P {d.protein} g · C {d.carbs} g · F {d.fat} g</p>
+                </div>) })() : null} />
+              <Bar dataKey="pK" name="Protein" stackId="in" fill="var(--s1)" isAnimationActive={false} />
+              <Bar dataKey="cK" name="Carbs" stackId="in" fill="var(--s4)" isAnimationActive={false} />
+              <Bar dataKey="fK" name="Fat" stackId="in" fill="var(--s7)" isAnimationActive={false} />
+              <Bar dataKey="oK" name="Other" stackId="in" fill="var(--line)" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+              <Line dataKey="out" name="Burned" stroke="var(--s2)" strokeWidth={2} dot={{ r: 3, fill: 'var(--s2)' }} isAnimationActive={false} />
+              <Line dataKey="target" name="Target" stroke="var(--good)" strokeWidth={1.5} strokeDasharray="4 4" dot={false} isAnimationActive={false} />
+            </ComposedChart>
+          </FitChart>
+          <p className="label mt-3 mb-1">Daily balance (eaten − burned)</p>
+          <FitChart height={90}>
+            <BarChart data={shown} margin={{ top: 0, right: 5, left: -10, bottom: 0 }}>
+              <XAxis dataKey="date" hide /><YAxis {...AXIS} />
+              <ReferenceLine y={0} stroke="var(--line)" /><ReferenceLine y={-sum.deficit} stroke="var(--good)" strokeDasharray="4 4" />
+              <Tooltip content={<Tip labelFormat={tick} fmt={x => `${x > 0 ? '+' : ''}${num(x)} kcal`} />} />
+              <Bar dataKey="net" name="Net" isAnimationActive={false} radius={[3, 3, 3, 3]}>
+                {shown.map(d => <Cell key={d.date} fill={d.today ? 'var(--line)' : d.net > 0 ? 'var(--bad)' : d.net < -1000 ? 'var(--warn)' : 'var(--good)'} />)}
+              </Bar>
+            </BarChart>
+          </FitChart>
+          <p className="text-[11px] text-muted mt-1">Green = deficit, orange = more than 1,000 below (under-fuelling), red = surplus, grey = today so far. Only days with food logged count; meal estimates are ±15–20%.</p>
+        </> : <>
+          <Legend items={[{ label: 'In (eaten)', color: 'var(--s4)', box: true }, { label: 'Out (burned)', color: 'var(--s2)' }]} />
+          <FitChart height={H}>
+            <ComposedChart data={weeks} margin={{ top: 5, right: 5, left: -10, bottom: 0 }}>
+              <CartesianGrid {...GRID} /><XAxis dataKey="wk" {...AXIS} tickFormatter={tick} minTickGap={30} /><YAxis {...AXIS} />
+              <Tooltip content={<Tip labelFormat={l => `Week of ${tick(l)}`} fmt={x => `${num(x)} kcal`} />} />
+              <Bar dataKey="in" name="In" fill="var(--s4)" radius={[4, 4, 0, 0]} />
+              <Line dataKey="out" name="Out" stroke="var(--s2)" strokeWidth={2} dot={{ r: 3, fill: 'var(--s2)' }} />
+            </ComposedChart>
+          </FitChart>
+          {weeks.length > 0 && (() => { const last = weeks[weeks.length - 1]; return <p className="text-xs text-muted mt-1 num">Week of {tick(last.wk)}: {last.days} days logged · net {last.net > 0 ? '+' : ''}{num(last.net)} kcal/day ≈ {last.kgWeek > 0 ? '+' : ''}{last.kgWeek} kg/week · protein {num(last.protein)} g/day</p> })()}
+        </>}
+      </>}
+    </Card>
   )
 }
