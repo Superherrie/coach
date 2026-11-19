@@ -14,6 +14,9 @@ export function actLoad(a: Pick<Activity, 'load' | 'duration_s' | 'rpe' | 'sport
 
 export interface PmcDay { date: string; load: number; fitness: number; fatigue: number; form: number }
 /** fitness (42-day), fatigue (7-day), form = yesterday's fitness − fatigue. `until` may run past today (planned). */
+/** fitness starts from zero, so every screen (and the coach) counts load from the same 365 days back — otherwise the numbers differ */
+export const PMC_DAYS = 365
+
 export function pmc(acts: Activity[], from: string, until: string, extra: Record<string, number> = {}): PmcDay[] {
   const by = new Map<string, number>()
   for (const a of acts) by.set(a.date, (by.get(a.date) ?? 0) + actLoad(a))

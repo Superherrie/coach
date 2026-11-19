@@ -9,7 +9,7 @@ import Proposals from '../components/Proposals'
 import { FoodCard } from '../components/Food'
 import { callFn, myId, getActs, getEvents, getLastRun, getPending, getPhases, getPlanned, getSets, getSettings, getWellness, useLoad } from '../lib/data'
 import { addDays, daysBetween, dmy, num, stamp, today, weekday } from '../lib/format'
-import { pmc, readiness } from '../lib/load'
+import { PMC_DAYS, pmc, readiness } from '../lib/load'
 import { supabase } from '../lib/supabase'
 import type { Activity, Planned, Slot, Wellness } from '../lib/types'
 import { bodyFrom } from '../lib/calories'
@@ -24,7 +24,7 @@ export default function Today() {
   const [day, setDay] = useState(today())
   const { data, reload } = useLoad(async () => {
     const [planned, acts, well, phases, events, pending, run, settings, sets, weekly] = await Promise.all([
-      getPlanned(day, day), getActs(addDays(day, -120), addDays(day, 0)), getWellness(addDays(day, -35), day), getPhases(), getEvents(), getPending(), getLastRun(), getSettings(), getSets(addDays(day, -120)), getLastRun('weekly'),
+      getPlanned(day, day), getActs(addDays(day, -PMC_DAYS), addDays(day, 0)), getWellness(addDays(day, -35), day), getPhases(), getEvents(), getPending(), getLastRun(), getSettings(), getSets(addDays(day, -120)), getLastRun('weekly'),
     ])
     const scans = ((await supabase.from('tr_inbody').select('date,bmr_kcal').gte('date', addDays(day, -120)).lte('date', day)).data ?? []) as { date: string; bmr_kcal: number | null }[]
     const dayIds = acts.filter(a => a.date === day).map(a => a.id)
@@ -66,7 +66,7 @@ export default function Today() {
 
   const stats = useMemo(() => {
     if (!data) return null
-    const p = pmc(data.acts, addDays(day, -120), day)
+    const p = pmc(data.acts, addDays(day, -PMC_DAYS), day)
     return { form: p[p.length - 1], ...readiness(data.well, day) }
   }, [data, day])
   const lastKg = useMemo(() => {

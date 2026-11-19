@@ -132,7 +132,7 @@ Deno.serve(async (req) => {
 
     const today = sastToday();
     const profileOf = (p: string | null | undefined) => `ATHLETE PROFILE — ${who}\n${p?.trim() || "No profile written yet. Ask about their goal, event, history, injuries and weekly availability before prescribing anything ambitious; keep sessions conservative until then. Units metric."}`;
-    const from = addDays(today, -28), to = addDays(today, 21), loadFrom = addDays(today, -120);
+    const from = addDays(today, -28), to = addDays(today, 21), loadFrom = addDays(today, -365);
     const [settings, phases, events, planned, acts, well, sets, pending, chat, meals] = await Promise.all([
       admin.from("tr_settings").select("height_cm,ftp_w,max_hr,run_max_hr,easy_run_hr_cap,goal_weight_kg,coach_auto,coach_model,notes,birth_year,activity_factor,kcal_deficit,sex,coach_profile,paces").eq("user_id", uid).maybeSingle(),
       admin.from("tr_phases").select("name,start_date,end_date,focus,run_km_from,run_km_to,long_run_from,long_run_to,leg_sessions,key_sessions,strength_emphasis").eq("user_id", uid).order("start_date"),

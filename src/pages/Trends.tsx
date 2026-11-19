@@ -8,7 +8,7 @@ import { navyBf } from '../lib/body'
 import { Link } from 'react-router-dom'
 import Icon from '../components/Icon'
 import { addDays, dm, monday, num, pace, today } from '../lib/format'
-import { e1rm, pmc, rolling } from '../lib/load'
+import { e1rm, PMC_DAYS, pmc, rolling } from '../lib/load'
 import { useSynced } from './Today'
 
 const RANGES = [{ k: 42, l: '6 wk' }, { k: 91, l: '3 mo' }, { k: 182, l: '6 mo' }, { k: 365, l: '1 yr' }]
@@ -17,7 +17,7 @@ const H = 200
 
 export default function Trends() {
   const [days, setDays] = useState(91)
-  const t = today(), from = addDays(t, -days), warm = addDays(from, -120)
+  const t = today(), from = addDays(t, -days), warm = addDays(t, -PMC_DAYS)
   const { data, reload } = useLoad(async () => {
     const [acts, well, planned, sets, settings, events, meals] = await Promise.all([getActs(warm, t), getWellness(from, t), getPlanned(from, addDays(t, 210)), getSets(from), getSettings(), getEvents(),
       fetchAll<{ date: string; kcal: number; protein_g: number | null; carbs_g: number | null; fat_g: number | null }>(() => supabase.from('tr_meals').select('date,kcal,protein_g,carbs_g,fat_g').gte('date', from).order('date'))])
