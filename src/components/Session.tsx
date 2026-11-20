@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { callFn, getSettings, useLoad } from '../lib/data'
 import Icon from './Icon'
-import { Scale, Sheet } from './ui'
+import { Scale, Sheet, AutoText } from './ui'
 import { supabase } from '../lib/supabase'
 import { SPORT, km, mins, minsOf, pace, dmy } from '../lib/format'
 import { actLoad } from '../lib/load'
@@ -245,7 +245,7 @@ export function PlanSheet({ p, onClose, onSaved, onAskCoach }: { p: Planned; onC
             {est.length > 0 && f.duration_min && (+f.duration_min < Math.min(...est) - 3 || +f.duration_min > Math.max(...est) + 3) && <> <button type="button" className="text-brand underline" onClick={() => setF({ ...f, duration_min: String(Math.round((est[0] + est[est.length - 1]) / 2)) })}>Set minutes to {Math.round((est[0] + est[est.length - 1]) / 2)}</button></>}
           </p>
         </>}
-        <label className="block"><span className="label">Workout</span><textarea className="input mt-1" rows={4} value={f.description} onChange={e => setF({ ...f, description: e.target.value })} /></label>
+        <label className="block"><span className="label">Workout</span><AutoText className="mt-1 text-[15px]" value={f.description} onChange={v => setF({ ...f, description: v })} /></label>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={f.locked} onChange={e => setF({ ...f, locked: e.target.checked })} />Lock — the coach may not change this session</label>
         <div className="flex flex-wrap gap-2 pt-1">
           {p.status !== 'skipped' ? <button className="btn btn-ghost !py-1.5 text-sm" onClick={() => void save({ status: 'skipped' })}>Mark as missed</button>

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactElement, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import { ResponsiveContainer } from 'recharts'
 import Icon from './Icon'
 import { InsightButton, type ChartAI } from './Insight'
@@ -145,4 +145,11 @@ export function Scale({ value, onChange, min, max, labels }: { value: number | n
 
 export function Empty({ children }: { children: ReactNode }) {
   return <p className="text-sm text-muted text-center py-6">{children}</p>
+}
+
+/** a textarea that grows with its text (no scrolling inside the box) */
+export function AutoText({ value, onChange, className = '', minRows = 3 }: { value: string; onChange: (v: string) => void; className?: string; minRows?: number }) {
+  const ref = useRef<HTMLTextAreaElement>(null)
+  useLayoutEffect(() => { const el = ref.current; if (!el) return; el.style.height = 'auto'; el.style.height = `${el.scrollHeight + 2}px` }, [value])
+  return <textarea ref={ref} rows={minRows} className={`input resize-none overflow-hidden leading-relaxed ${className}`} value={value} onChange={e => onChange(e.target.value)} />
 }
