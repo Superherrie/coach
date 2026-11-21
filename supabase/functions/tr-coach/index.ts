@@ -25,6 +25,7 @@ DATA YOU GET (per athlete, in the JSON)
 - food_last_14_days: meals logged (estimated from photos or dictation, ±15–20%); unlogged days are not zero days. Flag under-fuelling before long or hard sessions; keep any deficit moderate; one concrete lever beats a diet plan.
 - body_composition: tape (US Navy) and progress-photo body-fat estimates, plus InBody scans (measured muscle kg, fat kg, %, visceral level, BMR, ECW ratio — the most reliable of the three) — numbers only. A rising ECW ratio (>0.390) can mean inflammation or overreaching. Read the trend with weight; never treat one reading as a trend.
 - settings.paces: the athlete's training paces (Daniels VDOT from a race or time trial): easy range, marathon, tempo (threshold), intervals, in seconds per km. Prescribe run targets from these; Johannesburg results include altitude.
+- hard_rules: the athlete's NEVER rules. Your answer is checked against them after you reply (by code and by a second reviewer); a break gets your draft sent back, and anything still breaking a rule is shown to the athlete with a warning. your_recent_rule_breaks lists what you got wrong lately — don't repeat it.
 - coach_memory: standing decisions, facts and preferences the athlete agreed with you or told you (id, date, text, expires_on). They are binding: follow them in every review and answer, and they override your defaults and the profile where they conflict. Never re-introduce something a memory item rules out.
 - FUEL TARGETS (daily review → "fuel" for today): set the deficit and macros from today's and tomorrow's sessions and the phase. energy_today is the app's own burn (resting × activity factor + Garmin session calories already done; planned_sessions_kcal is an estimate for sessions not done yet) — base the deficit on it and never estimate burn yourself. Carbs by demand: rest/recovery 3–4 g/kg, easy day 4–5, hard or long day 6–8, carb loading 8–10 g/kg on the 1–2 days before a key race (no deficit then); protein 1.6–2.0 g/kg; fat 0.8–1.0 g/kg (lower on carb-load days). The weight-loss deficit (settings.kcal_deficit) applies on rest and easy days only, never before or after a long/hard session or race. Use the latest weight. Grams must add up to about the kcal (4/4/9).
 - workout_library: guided workouts; schedule them as sport "mobility" (or as fits) with targets.workout_id set.
@@ -101,6 +102,112 @@ function actLoad(a: { load: number | null; duration_s: number | null; rpe: numbe
   return Math.round(h * 100 * f * f * (a.sport === "gym_upper" ? 0.3 : a.sport === "gym_legs" ? 0.7 : a.sport === "mobility" ? 0.2 : 1));
 }
 
+// ---------- hard-rule guard ----------
+type HardRule = { id: number; text: string; rule: { banned?: string[]; carbs_max_gkg?: { easy?: number; hard?: number }; burn_from_app?: boolean } | null };
+type Violation = { rule_id: number; rule: string; where: string; date?: string | null; slot?: string | null; detail: string; source: "code" | "claude" };
+// deno-lint-ignore no-explicit-any
+type Draft = any;
+const NEG = /\b(no|not|never|without|avoid|skip|zero)\b[^.;:]{0,25}$/i;   // "no carb loading" / "without loading" is fine
+const NEG_AFTER = /^[^.;:]{0,30}\b(removed|replaced|gone|dropped|taken out|deleted)\b/i;   // "carb-load text removed" is fine
+
+/** every coach-written text in a draft, labelled by where it sits */
+function draftTexts(d: Draft): { where: string; date?: string; slot?: string; text: string }[] {
+  const t: { where: string; date?: string; slot?: string; text: string }[] = [];
+  for (const k of ["summary", "today_note", "reply", "proposal_title"]) if (d?.[k]) t.push({ where: k, text: String(d[k]) });
+  if (d?.fuel?.why) t.push({ where: "fuel.why", text: String(d.fuel.why) });
+  for (const c of d?.changes ?? []) {
+    t.push({ where: "change.why", date: c.date, slot: c.slot, text: String(c.why ?? "") });
+    if (c.after) t.push({ where: "session", date: c.date, slot: c.slot, text: `${c.after.title ?? ""}. ${c.after.description ?? ""}` });
+  }
+  return t;
+}
+
+/** hard or long session → "hard" carb ceiling; race days are exempt (race-day fuelling is allowed) */
+// deno-lint-ignore no-explicit-any
+function dayKind(sessions: any[]): "easy" | "hard" | "race" {
+  if (sessions.some((p) => p?.sport === "race" || p?.intensity === "race")) return "race";
+  const long = (p: { sport?: string; duration_min?: number | null; distance_km?: number | null }) =>
+    (p.sport === "run" && ((p.duration_min ?? 0) >= 90 || (p.distance_km ?? 0) >= 18)) || (p.sport === "ride" && (p.duration_min ?? 0) >= 150);
+  return sessions.some((p) => p?.intensity === "hard" || long(p)) ? "hard" : "easy";
+}
+
+/** carbs a text prescribes for the day: the highest "x g/kg" next to "carb", or the highest 3–4 digit gram total next to "carb" (÷ kg) */
+function carbGkg(text: string, kg: number): number | null {
+  let best: number | null = null;
+  const near = (i: number) => /carb/i.test(text.slice(Math.max(0, i - 60), i + 60));
+  for (const m of text.matchAll(/(\d+(?:[.,]\d+)?)\s*(?:[–-]\s*(\d+(?:[.,]\d+)?))?\s*g\s*\/\s*kg/gi)) {
+    if (!near(m.index ?? 0)) continue;
+    const v = Number(String(m[2] ?? m[1]).replace(",", ".")); if (v > 0 && v < 20) best = Math.max(best ?? 0, v);
+  }
+  for (const m of text.matchAll(/(\d{3,4})\s*(?:[–-]\s*(\d{3,4}))?\s*g\b(?!\s*\/)/gi)) {
+    const i = m.index ?? 0; const ctx = text.slice(Math.max(0, i - 60), i + 60);
+    if (!/carb/i.test(ctx) || /breakfast|per hour|\/h|an hour|during the race|in-race|on the bike/i.test(ctx)) continue;   // race breakfast / in-race carbs are allowed
+    const v = Number(m[2] ?? m[1]) / kg; if (v > 0) best = Math.max(best ?? 0, Math.round(v * 10) / 10);
+  }
+  return best;
+}
+
+// deno-lint-ignore no-explicit-any
+function codeCheck(d: Draft, rules: HardRule[], ctx: { kg: number; today: string; plan: any[]; energy: { total_so_far: number } }): Violation[] {
+  const v: Violation[] = [];
+  const texts = draftTexts(d);
+  for (const r of rules) {
+    const cfg = r.rule ?? {};
+    for (const pat of cfg.banned ?? []) {
+      const re = new RegExp(pat, "gi");
+      for (const t of texts) for (const m of t.text.matchAll(re)) {
+        if (NEG.test(t.text.slice(Math.max(0, (m.index ?? 0) - 40), m.index ?? 0)) || NEG_AFTER.test(t.text.slice((m.index ?? 0) + m[0].length))) continue;
+        v.push({ rule_id: r.id, rule: r.text, where: t.where, date: t.date ?? null, slot: t.slot ?? null, detail: `says "${t.text.slice(Math.max(0, (m.index ?? 0) - 25), (m.index ?? 0) + m[0].length + 25).trim()}"`, source: "code" });
+        break;
+      }
+    }
+    if (cfg.carbs_max_gkg) {
+      const sessionsOn = (date: string) => {
+        const changed = (d?.changes ?? []).filter((c: { date: string }) => c.date === date);
+        const kept = ctx.plan.filter((p) => p.date === date && !changed.some((c: { slot: string }) => c.slot === p.slot));
+        return [...kept, ...changed.map((c: { after: unknown }) => c.after).filter(Boolean)];
+      };
+      const check = (date: string, gkg: number | null, where: string, slot: string | null) => {
+        if (gkg == null) return;
+        const kind = dayKind(sessionsOn(date)); if (kind === "race") return;
+        const max = (kind === "hard" ? cfg.carbs_max_gkg!.hard : cfg.carbs_max_gkg!.easy) ?? 99;
+        if (gkg > max + 0.05) v.push({ rule_id: r.id, rule: r.text, where, date, slot, detail: `${gkg} g/kg carbs on a${kind === "easy" ? "n easy/openers/rest" : " hard/long"} day (ceiling ${max} g/kg = ${Math.round(max * ctx.kg)} g)`, source: "code" });
+      };
+      if (d?.fuel?.carbs_g) check(ctx.today, Math.round((d.fuel.carbs_g / ctx.kg) * 10) / 10, "fuel", null);
+      for (const c of d?.changes ?? []) if (c.after) check(c.date, carbGkg(`${c.after.description ?? ""} ${c.why ?? ""}`, ctx.kg), "session", c.slot);
+    }
+    if (cfg.burn_from_app && d?.fuel && typeof d.fuel.kcal === "number" && typeof d.fuel.deficit_kcal === "number") {
+      const want = ctx.energy.total_so_far - d.fuel.deficit_kcal;
+      if (Math.abs(d.fuel.kcal - want) > 60) v.push({ rule_id: r.id, rule: r.text, where: "fuel", date: ctx.today, slot: null, detail: `fuel kcal ${d.fuel.kcal} ≠ app burn ${ctx.energy.total_so_far} − deficit ${d.fuel.deficit_kcal} = ${want}`, source: "code" });
+    }
+  }
+  return v;
+}
+
+const Verdict = z.object({ violations: z.array(z.object({
+  rule_id: z.number().int(), date: z.string().nullable().describe("YYYY-MM-DD of the session concerned, or null"), slot: z.enum(["am", "pm"]).nullable(), where: z.string(),
+  detail: z.string().describe("quote the words and say how they break the rule"),
+  is_break: z.boolean().describe("your verdict after the detail: true only if it clearly breaks the rule"),
+})) });
+
+/** Claude reads every hard rule (any wording) against the draft */
+async function claudeCheck(client: Anthropic, d: Draft, rules: HardRule[], ctx: { who: string; chatMessage?: string }): Promise<Violation[]> {
+  if (!rules.length) return [];
+  const draft = { summary: d?.summary, today_note: d?.today_note, reply: d?.reply, fuel: d?.fuel, changes: (d?.changes ?? []).map((c: Draft) => ({ date: c.date, slot: c.slot, why: c.why, after: c.after && { sport: c.after.sport, title: c.after.title, intensity: c.after.intensity, duration_min: c.after.duration_min, description: c.after.description } })) };
+  const res = await client.messages.parse({ model: "claude-sonnet-5-5", max_tokens: 3000, output_config: { effort: "low", format: zodOutputFormat(Verdict) },
+    messages: [{ role: "user", content: `You audit a training coach's draft against the athlete's HARD RULES. List only clear breaks of a rule's intent (including the same thing under another name), not style; if nothing breaks a rule, return an empty list. Negations ("no carb loading") are not breaks. Race-day breakfast and in-race fuelling are allowed unless a rule says otherwise.${ctx.chatMessage ? ` If the athlete explicitly asked for something in this message, doing it is not a break: "${ctx.chatMessage}"` : ""}
+
+HARD RULES of ${ctx.who}:
+${rules.map((r) => `[${r.id}] ${r.text}`).join("\n")}
+
+DRAFT:
+${JSON.stringify(draft)}` }] });
+  return (res.parsed_output?.violations ?? []).filter((x) => x.is_break && !/not a (clear )?break|no (clear )?break|is fine|acceptable|within the (cap|ceiling|rule)/i.test(x.detail)).map(({ is_break: _b, ...x }) => ({ ...x, rule: rules.find((r) => r.id === x.rule_id)?.text ?? "", source: "claude" as const }));
+}
+
+const vKey = (x: Violation) => `${x.rule_id}|${x.date ?? ""}|${x.slot ?? ""}|${x.where}`;
+function merge(a: Violation[], b: Violation[]) { const seen = new Set(a.map(vKey)); return [...a, ...b.filter((x) => !seen.has(vKey(x)))]; }
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const url = Deno.env.get("SUPABASE_URL")!;
@@ -161,6 +268,10 @@ Deno.serve(async (req) => {
     const { data: memRows } = await admin.from("tr_coach_memory").select("id,created_at,text,kind,expires_on").eq("user_id", uid).eq("active", true)
       .or(`expires_on.is.null,expires_on.gte.${today}`).order("created_at");
     const memory = (memRows ?? []).map((m) => ({ id: m.id, date: String(m.created_at).slice(0, 10), kind: m.kind, text: m.text, expires_on: m.expires_on }));
+    const { data: hardRows } = await admin.from("tr_coach_memory").select("id,text,rule").eq("user_id", uid).eq("active", true).eq("hard", true).order("id");
+    const hardRules = (hardRows ?? []) as HardRule[];
+    const { data: guardRows } = await admin.from("tr_coach_runs").select("created_at,guard").eq("user_id", uid).not("guard", "is", null).gte("created_at", addDays(today, -14)).order("created_at", { ascending: false }).limit(10);
+    const recentBreaks = (guardRows ?? []).flatMap((g) => ((g.guard?.violations ?? []) as Violation[]).map((x) => ({ on: String(g.created_at).slice(0, 10), rule: x.rule, detail: x.detail }))).slice(0, 12);
     const profile = profileOf(settings.data?.coach_profile);
     const h = Number(settings.data?.height_cm ?? 0);
     let neck: number | null = null, waist: number | null = null;
@@ -240,6 +351,8 @@ Deno.serve(async (req) => {
       load_last_28_days: pmc.slice(-28),
       pending_proposals: pending.data,
       coach_memory: memory,
+      hard_rules: hardRules.map((r) => ({ id: r.id, text: r.text })),
+      your_recent_rule_breaks: recentBreaks,
     };
 
     // ---- chart insight: read-only analysis of one Trends chart, never changes the plan ----
@@ -309,6 +422,15 @@ ${JSON.stringify(context)}`
       }
     }
 
+    if (body.guard_dry_run) {
+      if (!byCron) return json({ error: "dry run needs the schedule token" }, 403);
+      const d = body.guard_dry_run;
+      const gctx = { kg: energy_today.weight_kg, today: String(body.as_of ?? today), plan: planned.data ?? [], energy: energy_today };
+      const code = codeCheck(d, hardRules, gctx);
+      const ai = await claudeCheck(new Anthropic(), d, hardRules, { who });
+      return json({ rules: hardRules.map((r) => r.text), code, claude: ai, caught: code.length + ai.length > 0 });
+    }
+
     const { data: run } = await admin.from("tr_coach_runs").insert({ user_id: uid, kind: mode, input_sig: sig }).select("id").single();   // daily | weekly | chat
     runId = run?.id ?? null;
     if (mode === "chat") await admin.from("tr_chat").insert({ user_id: uid, role: "user", content: String(body.message).trim() });
@@ -324,7 +446,43 @@ ${JSON.stringify(context)}`
     let res = await ask(primary); let model = primary;
     if (res.stop_reason === "refusal") { model = "claude-sonnet-5-5"; res = await ask(model); }   // client-side fallback
     if (res.stop_reason === "refusal" || !res.parsed_output) throw new Error(`Claude returned no usable answer (${res.stop_reason})`);
-    const out = res.parsed_output as z.infer<typeof Daily> & z.infer<typeof Chat>;
+    let out = res.parsed_output as z.infer<typeof Daily> & z.infer<typeof Chat>;
+
+    // ---- hard-rule guard: code checks + a Claude check; one corrected draft; what still breaks a rule is flagged ----
+    const gctx = { kg: energy_today.weight_kg, today, plan: planned.data ?? [], energy: energy_today };
+    const chatMessage = mode === "chat" ? String(body.message ?? "") : undefined;
+    const checkAll = async (d: Draft) => merge(codeCheck(d, hardRules, gctx), await claudeCheck(client, d, hardRules, { who, chatMessage }).catch(() => []));
+    let violations = hardRules.length ? await checkAll(out) : [];
+    const first = violations;
+    // race sessions and today/tomorrow's sessions are never rewritten by the fix — those are flagged only
+    const frozen = (x: Violation) => !!x.date && x.where !== "fuel" && (x.date <= addDays(today, 1) || (planned.data ?? []).some((p) => p.date === x.date && p.sport === "race"));
+    if (violations.some((x) => !frozen(x))) {
+      const fix = await client.messages.parse({
+        model, max_tokens: 16000, output_config: { effort: "medium", format: zodOutputFormat(review ? Daily : Chat) },
+        system: [{ type: "text", text: SYSTEM }, { type: "text", text: profile, cache_control: { type: "ephemeral", ttl: "1h" } }],
+        messages: [{ role: "user", content: userText }, { role: "assistant", content: JSON.stringify(out) },
+          { role: "user", content: `Your draft breaks the athlete's HARD RULES:\n${violations.map((x) => `- [${x.rule_id}] ${x.rule} → ${x.where}${x.date ? ` ${x.date} ${x.slot ?? ""}` : ""}: ${x.detail}`).join("\n")}\nReturn the full corrected output. Change only what is needed to obey the rules${violations.some(frozen) ? "; leave changes dated on or before " + addDays(today, 1) + " and race sessions exactly as they were" : ""}.` }],
+      }).catch(() => null);
+      if (fix?.parsed_output) {
+        const fixed = fix.parsed_output as typeof out;
+        // keep the original for frozen sessions
+        fixed.changes = (fixed.changes ?? []).map((c) => (out.changes ?? []).find((o) => o.date === c.date && o.slot === c.slot && frozen({ rule_id: 0, rule: "", where: "session", date: c.date, slot: c.slot, detail: "", source: "code" })) ?? c);
+        out = fixed;
+        violations = await checkAll(out);
+      }
+    }
+    // fuel numbers the code can correct itself: carbs over the ceiling → the ceiling; kcal → app burn − deficit
+    if (mode === "daily" && out.fuel) {
+      const burnRule = hardRules.find((r) => r.rule?.burn_from_app);
+      if (burnRule && typeof out.fuel.deficit_kcal === "number") out.fuel.kcal = energy_today.total_so_far - out.fuel.deficit_kcal;
+      for (const x of violations.filter((x) => x.where === "fuel" && x.source === "code" && /g\/kg carbs/.test(x.detail))) {
+        const max = Number(x.detail.match(/ceiling ([\d.]+) g\/kg/)?.[1]); if (max) out.fuel.carbs_g = Math.round(max * gctx.kg);
+      }
+      violations = violations.filter((x) => !(x.where === "fuel" && x.source === "code"));
+    }
+    const flagged = violations;
+    const flagFor = (date: string, slot: string) => flagged.filter((x) => x.date === date && x.slot === slot);
+    const guard = hardRules.length ? { checked: hardRules.length, violations: first, fixed: first.filter((x) => !flagged.some((y) => vKey(y) === vKey(x))).map((x) => x.detail), flagged } : null;
 
     // ---- decide: apply small changes, collect the rest into one proposal ----
     const plan = planned.data ?? [];
@@ -334,13 +492,15 @@ ${JSON.stringify(context)}`
       if (c.date < today) continue;
       const before = plan.find((p) => p.date === c.date && p.slot === c.slot) ?? null;
       if (before?.locked) continue;
+      const fl = flagFor(c.date, c.slot);
+      if (fl.length) c.why = `⚠ Breaks your rule: ${fl[0].rule.slice(0, 80)} — ${c.why}`;
       const after = c.after ? { ...c.after, change_note: c.why } : null;
       const isLong = (s: { distance_km?: number | null; duration_min?: number | null; sport?: string } | null) =>
         !!s && (s.sport === "race" || (s.sport === "run" && ((s.distance_km ?? 0) >= 25 || (s.duration_min ?? 0) >= 150)) || (s.sport === "ride" && (s.duration_min ?? 0) >= 180));
       const moreLoad = (after?.planned_load ?? 0) > (before?.planned_load ?? 0) * 1.15 + 10;
       const small = c.scope === "small" && c.date <= addDays(today, 7) && !isLong(before) && !isLong(after) && !moreLoad;
       const entry = { date: c.date, slot: c.slot, why: c.why, before: before && { sport: before.sport, title: before.title, duration_min: before.duration_min, distance_km: before.distance_km, planned_load: before.planned_load }, after };
-      if (auto && small) {
+      if (auto && small && !fl.length) {
         if (after) {
           const { error } = await admin.from("tr_planned").upsert({
             user_id: uid, date: c.date, slot: c.slot, sport: after.sport, title: after.title, description: after.description, duration_min: after.duration_min,
@@ -358,7 +518,7 @@ ${JSON.stringify(context)}`
       proposalId = p?.id ?? null;
     }
     const summary = review ? out.summary : out.reply;
-    await admin.from("tr_coach_runs").update({ summary, today_note: out.today_note ?? null, fuel: mode === "daily" ? (out.fuel ?? null) : null, model, usage: { ...res.usage, applied: applied.length, proposed: proposed.length } }).eq("id", runId);
+    await admin.from("tr_coach_runs").update({ summary, today_note: out.today_note ?? null, fuel: mode === "daily" ? (out.fuel ?? null) : null, guard, model, usage: { ...res.usage, applied: applied.length, proposed: proposed.length } }).eq("id", runId);
     // chat → save lasting decisions / retire outdated ones
     let memMeta: { saved: string[]; retired: string[] } | null = null;
     if (mode === "chat") {
@@ -377,7 +537,7 @@ ${JSON.stringify(context)}`
       if (saved.length || retired.length) memMeta = { saved, retired };
       await admin.from("tr_chat").insert({ user_id: uid, role: "assistant", content: out.reply, meta: memMeta });
     }
-    return json({ ok: true, summary, today_note: out.today_note ?? null, fuel: out.fuel ?? null, memory: memMeta, applied, proposal_id: proposalId, proposed: proposed.length, model, usage: res.usage });
+    return json({ ok: true, summary, today_note: out.today_note ?? null, fuel: out.fuel ?? null, guard, memory: memMeta, applied, proposal_id: proposalId, proposed: proposed.length, model, usage: res.usage });
   } catch (e) {
     const msg = e instanceof Anthropic.RateLimitError ? "Claude is rate-limited — try again in a minute"
       : e instanceof Anthropic.AuthenticationError ? "The ANTHROPIC_API_KEY was rejected — check the Supabase secret"
