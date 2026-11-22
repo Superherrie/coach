@@ -41,9 +41,21 @@ export default function Trends() {
     const ramp = nowP && all.find(d => d.date === addDays(t, -28)) ? nowP.fitness - all.find(d => d.date === addDays(t, -28))!.fitness : null
 
     // weekly volume by sport (hours) + run km vs planned
-    const weeks = new Map<string, { wk: string; run: number; ride: number; legs: number; upper: number; other: number; km: number; kmPlan: number; long: number; done: number; due: number }>()
-    const W = (d: string) => { const k = monday(d); if (!weeks.has(k)) weeks.set(k, { wk: k, run: 0, ride: 0, legs: 0, upper: 0, other: 0, km: 0, kmPlan: 0, long: 0, done: 0, due: 0 }); return weeks.get(k)! }
+    // plus the plan ahead: the rest of this week and the next few weeks (more weeks on the longer ranges), never past race week
+    type Wk = { wk: string; run: number; ride: number; legs: number; upper: number; other: number; km: number; kmPlan: number; long: number; done: number; due: number
+      kmAhead: number; longAhead: number; aRun: number; aRide: number; aLegs: number; aUpper: number; aOther: number }
+    const weeks = new Map<string, Wk>()
+    const W = (d: string) => { const k = monday(d); if (!weeks.has(k)) weeks.set(k, { wk: k, run: 0, ride: 0, legs: 0, upper: 0, other: 0, km: 0, kmPlan: 0, long: 0, done: 0, due: 0, kmAhead: 0, longAhead: 0, aRun: 0, aRide: 0, aLegs: 0, aUpper: 0, aOther: 0 }); return weeks.get(k)! }
     for (let d = monday(from); d <= t; d = addDays(d, 7)) W(d)
+    const aheadEnd = (() => { const e = addDays(monday(t), Math.max(4, Math.round(days / 14)) * 7 + 6); return e < race ? e : addDays(monday(race), 6) })()
+    for (let d = addDays(monday(t), 7); d <= aheadEnd; d = addDays(d, 7)) W(d)
+    const isRideRace = (p: { title: string }) => /ride|cycl|bike|947|mtb/i.test(p.title)
+    for (const p of data.planned.filter(p => p.date > t && p.date <= aheadEnd && p.sport !== 'rest')) {
+      const w = W(p.date), h = (p.duration_min ?? 0) / 60
+      const sport = p.sport === 'race' ? (isRideRace(p) ? 'ride' : 'run') : p.sport
+      if (sport === 'run') { w.aRun += h; w.kmAhead += p.distance_km ?? 0; w.longAhead = Math.max(w.longAhead, p.distance_km ?? 0) }
+      else if (sport === 'ride') w.aRide += h; else if (sport === 'gym_legs') w.aLegs += h; else if (sport === 'gym_upper') w.aUpper += h; else w.aOther += h
+    }
     for (const a of data.acts.filter(a => a.date >= monday(from))) {
       const w = W(a.date), h = (a.duration_s ?? 0) / 3600
       if (a.sport === 'run') { w.run += h; w.km += (a.distance_m ?? 0) / 1000; w.long = Math.max(w.long, (a.distance_m ?? 0) / 1000) }
@@ -54,7 +66,18 @@ export default function Trends() {
       if (p.sport === 'run') w.kmPlan += p.distance_km ?? 0
       if (p.sport !== 'rest') { w.due++; if (p.status === 'done') w.done++ }
     }
-    const wk = [...weeks.values()].sort((a, b) => a.wk.localeCompare(b.wk)).map(w => ({ ...w, run: +w.run.toFixed(1), ride: +w.ride.toFixed(1), legs: +w.legs.toFixed(1), upper: +w.upper.toFixed(1), other: +w.other.toFixed(1), km: Math.round(w.km), kmPlan: Math.round(w.kmPlan), long: Math.round(w.long), pct: w.due ? Math.round((w.done / w.due) * 100) : null }))
+    const thisWk = monday(t)
+    const wkAll = [...weeks.values()].sort((a, b) => a.wk.localeCompare(b.wk)).map(w => {
+      const past = w.wk <= thisWk, future = w.wk > thisWk, h1 = (x: number) => (x ? +x.toFixed(1) : null)
+      return { ...w, run: +w.run.toFixed(1), ride: +w.ride.toFixed(1), legs: +w.legs.toFixed(1), upper: +w.upper.toFixed(1), other: +w.other.toFixed(1),
+        km: past ? Math.round(w.km) : null, kmPlan: past ? Math.round(w.kmPlan) : null, long: past ? Math.round(w.long) : null,
+        kmAhead: w.kmAhead ? Math.round(w.kmAhead) : null,
+        // the dashed long-run line starts from this week's longest so far, so it joins the solid line
+        longAhead: future ? (w.longAhead ? Math.round(w.longAhead) : null) : w.wk === thisWk ? Math.round(Math.max(w.long, w.longAhead)) : null,
+        aRun: h1(w.aRun), aRide: h1(w.aRide), aLegs: h1(w.aLegs), aUpper: h1(w.aUpper), aOther: h1(w.aOther), future,
+        pct: past && w.due ? Math.round((w.done / w.due) * 100) : null }
+    })
+    const wk = wkAll.filter(w => !w.future)
 
     // wellness with 7-day averages
     const wl = data.well
@@ -132,14 +155,32 @@ export default function Trends() {
     const actualKgW = kgs.length >= 2 && full.length ? +(((Number(kgs[kgs.length - 1].weight_kg) - Number(kgs[0].weight_kg)) / Math.max(1, (Date.parse(kgs[kgs.length - 1].date) - Date.parse(kgs[0].date)) / 864e5)) * 7).toFixed(2) : null
     const calSum = { days: full.length, inAvg: avg('in'), outAvg: avg('out'), netAvg: avg('net'), protein: avg('protein'), carbs: avg('carbs'), kgW, actualKgW, deficit,
       proteinAim: Math.round(bodyFrom(data.settings, data.well, t, data.scans).weight * 1.6) }
-    return { bf, inbody, cal, calDays, calSum, pm, atRace, nowP, ramp, wk, well, lastKg, lastWaist, easyRuns, easyRides, zones, gym, liftsSeen, ftp, race }
-  }, [data, from, t, warm])
+    // weight ahead, weekly points from the latest 7-day average: the straight path to the mid-May goal,
+    // and where the logged calories point (needs 5+ logged days, so one big or small day doesn't swing it)
+    const goalKg = Number(data.settings.goal_weight_kg ?? 91), goalDate = '2027-05-15'
+    const anchor = [...well].reverse().find(w => w.kg7 != null)
+    const kgAhead: { date: string; kgGoal: number | null; kgCal: number | null }[] = []
+    if (anchor?.kg7 != null) {
+      const start = Number(anchor.kg7), daysToGoal = Math.max(1, (Date.parse(goalDate) - Date.parse(anchor.date)) / 864e5)
+      const perDayGoal = start > goalKg ? (goalKg - start) / daysToGoal : null
+      const perDayCal = calSum.days >= 5 && calSum.kgW != null ? calSum.kgW / 7 : null
+      for (let d = anchor.date; d <= aheadEnd; d = addDays(d, 7)) {
+        const n = (Date.parse(d) - Date.parse(anchor.date)) / 864e5
+        kgAhead.push({ date: d, kgGoal: perDayGoal != null && d <= goalDate ? +(start + perDayGoal * n).toFixed(1) : null, kgCal: perDayCal != null ? +(start + perDayCal * n).toFixed(1) : null })
+      }
+    }
+    return { kgAhead, goalDate, wkAll, aheadEnd, bf, inbody, cal, calDays, calSum, pm, atRace, nowP, ramp, wk, well, lastKg, lastWaist, easyRuns, easyRides, zones, gym, liftsSeen, ftp, race }
+  }, [data, from, t, warm, days])
 
   if (!data || !v) return <p className="text-muted py-10 text-center animate-pulse">Loading…</p>
   const h = data.settings.height_cm
   // with only a few weigh-ins, start the weight chart a few days before the first one so the dots aren't squeezed into the right edge
   const firstKg = v.well.findIndex(w => w.kg)
-  const weightRows = firstKg >= 0 && v.well.filter(w => w.kg).length < 14 ? v.well.slice(Math.max(0, firstKg - 5)) : v.well
+  const weightPast: ({ date: string; kgGoal?: number | null; kgCal?: number | null } & Partial<(typeof v.well)[number]>)[] = firstKg >= 0 && v.well.filter(w => w.kg).length < 14 ? v.well.slice(Math.max(0, firstKg - 5)) : v.well
+  // join the projection on: its first point sits on the last 7-day average, the rest are weekly points after the last day shown
+  const lastPast = weightPast.length ? weightPast[weightPast.length - 1].date : t
+  const weightRows = [...weightPast.map(r => { const a = v.kgAhead.find(x => x.date === r.date); return a ? { ...r, kgGoal: a.kgGoal, kgCal: a.kgCal } : r }), ...v.kgAhead.filter(x => x.date > lastPast)]
+  const hasGoalPath = v.kgAhead.some(x => x.kgGoal != null), hasCalPath = v.kgAhead.some(x => x.kgCal != null)
   const whtr = v.lastWaist && h ? v.lastWaist / h : null
   const avgPct = (() => { const z = v.zones.slice(-4); return z.length ? Math.round(z.reduce((s, x) => s + x.easy, 0) / z.length) : null })()
   const range = RANGES.find(r => r.k === days)?.l ?? `${days} days`
@@ -148,11 +189,11 @@ export default function Trends() {
   const AI = {
     pmc: { key: 'pmc', title: 'Fitness, fatigue and form', range, about: 'Daily TSS-like load as fitness (42-day CTL), fatigue (7-day ATL) and form (TSB). Values after today are a projection of the planned sessions to Comrades.',
       data: v.pm.filter((_, i, a) => a.length < 200 || i % 2 === 0 || a[i].date === t).map(d => ({ d: d.date, load: d.load, fit: r1(d.fitness ?? d.pFit), fat: r1(d.fatigue ?? d.pFat), form: r1(d.form), plan: d.date > t })) },
-    volume: { key: 'run-volume', title: 'Running volume', range, about: 'Weekly running km done vs planned km (the plan km are ceilings), and the longest run each week.', data: v.wk.map(w => ({ wk: w.wk, km: w.km, plan: w.kmPlan, long: w.long })) },
-    hours: { key: 'hours', title: 'Hours by type', range, about: 'Weekly training hours by type (run, ride, leg gym, upper gym, other).', data: v.wk.map(w => ({ wk: w.wk, run: w.run, ride: w.ride, legs: w.legs, upper: w.upper, other: w.other })) },
+    volume: { key: 'run-volume', title: 'Running volume', range, about: 'Weekly running km done vs planned km (the plan km are ceilings), and the longest run each week. km_ahead / long_ahead = what the plan still has from tomorrow on (rest of this week and the weeks ahead).', data: v.wkAll.map(w => ({ wk: w.wk, km: w.km, plan: w.kmPlan, long: w.long, km_ahead: w.kmAhead, long_ahead: w.future ? w.longAhead : undefined })) },
+    hours: { key: 'hours', title: 'Hours by type', range, about: 'Weekly training hours by type (run, ride, leg gym, upper gym, other); a_* = planned hours still ahead (from tomorrow).', data: v.wkAll.map(w => ({ wk: w.wk, run: w.run, ride: w.ride, legs: w.legs, upper: w.upper, other: w.other, a_run: w.aRun, a_ride: w.aRide, a_legs: w.aLegs, a_upper: w.aUpper, a_other: w.aOther })) },
     rhr: { key: 'rhr', title: 'Resting heart rate', range, about: 'Morning resting HR from Garmin with a 7-day average.', data: v.well.map(w => ({ d: w.date, rhr: w.rhr, avg7: w.rhr7 })) },
     hrv: { key: 'hrv', title: 'HRV', range, about: 'Overnight HRV (rMSSD) from Garmin with a 7-day average.', data: v.well.map(w => ({ d: w.date, hrv: w.hrv, avg7: w.hrv7, sleep_h: w.sleep })) },
-    weight: { key: 'weight', title: 'Weight', range, about: `Weigh-ins with a 7-day average; goal ≤ ${data.settings.goal_weight_kg ?? 91} kg by mid-May 2027 (plan target 85–91 kg).`, data: v.well.filter(w => w.kg).map(w => ({ d: w.date, kg: w.kg, avg7: w.kg7 })) },
+    weight: { key: 'weight', title: 'Weight', range, about: `Weigh-ins with a 7-day average; goal ≤ ${data.settings.goal_weight_kg ?? 91} kg by mid-May 2027 (plan target 85–91 kg). Ahead: goal_path = straight line from the last 7-day average to the goal on ${v.goalDate}; at_logged_kcal = where the average logged calorie balance points.`, data: { weighins: v.well.filter(w => w.kg).map(w => ({ d: w.date, kg: w.kg, avg7: w.kg7 })), ahead: v.kgAhead.map(x => ({ d: x.date, goal_path: x.kgGoal, at_logged_kcal: x.kgCal })) } },
     waist: { key: 'waist', title: 'Waist', range, about: `Waist in cm; height ${h ?? 'unknown'} cm, waist-to-height target under 0.50.`, data: v.well.filter(w => w.waist).map(w => ({ d: w.date, cm: w.waist })) },
     runEff: { key: 'run-efficiency', title: 'Easy-run efficiency', range, about: 'Easy runs only: metres per minute per heartbeat (higher = fitter), with pace (s/km, grade-adjusted where available) and HR.', data: v.easyRuns.map(r => ({ d: r.date, eff: r.eff, pace_s: r.pace, hr: r.hr, km: r.km })) },
     rideEff: { key: 'ride-efficiency', title: 'Easy-ride efficiency', range, about: 'Easy rides only: average watts ÷ average HR (EF). Indoor vs outdoor and the bike used affect this.', data: v.easyRides.map(r => ({ d: r.date, ef: r.eff, w: r.w, hr: r.hr })) },
@@ -204,28 +245,36 @@ export default function Trends() {
         <p className="text-xs text-muted mt-1">Below −25 (red line) = deep fatigue; the coach eases the next day. Fitness rising more than ~8 a month is a fast ramp.</p>
       </Card>
 
-      <Card ai={AI.volume} title="Running volume" sub="Weekly km done against the planned km (the plan's ceiling), and the week's longest run">
-        <Legend items={[{ label: 'Run km', color: 'var(--s1)', box: true }, { label: 'Planned', color: 'var(--muted)', dashed: true }, { label: 'Longest run', color: 'var(--s2)' }]} />
+      <Card ai={AI.volume} title="Running volume" sub="Weekly km done against the planned km (the plan's ceiling), and the week's longest run. Faded bars and dashed line after this week = what the plan has ahead.">
+        <Legend items={[{ label: 'Run km', color: 'var(--s1)', box: true }, { label: 'Plan ahead', color: 'color-mix(in srgb, var(--s1) 35%, transparent)', box: true }, { label: 'Planned to date', color: 'var(--muted)', dashed: true }, { label: 'Longest run', color: 'var(--s2)' }, { label: 'Planned long run', color: 'var(--s2)', dashed: true }]} />
         <FitChart height={H}>
-          <ComposedChart data={v.wk} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+          <ComposedChart data={v.wkAll} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
             <CartesianGrid {...GRID} /><XAxis dataKey="wk" {...AXIS} tickFormatter={tick} minTickGap={30} /><YAxis {...AXIS} />
             <Tooltip content={<Tip labelFormat={l => `Week of ${tick(l)}`} />} />
-            <Bar dataKey="km" name="Run km" fill="var(--s1)" radius={[4, 4, 0, 0]} />
+            <ReferenceLine x={monday(t)} stroke="var(--muted)" />
+            <Bar dataKey="km" name="Run km" stackId="km" fill="var(--s1)" />
+            <Bar dataKey="kmAhead" name="Plan ahead km" stackId="km" fill="var(--s1)" fillOpacity={0.35} radius={[4, 4, 0, 0]} />
             <Line dataKey="kmPlan" name="Planned km" stroke="var(--muted)" strokeDasharray="4 4" strokeWidth={2} dot={false} />
             <Line dataKey="long" name="Longest run" stroke="var(--s2)" strokeWidth={2} dot={{ r: 3 }} />
+            <Line dataKey="longAhead" name="Planned long run" stroke="var(--s2)" strokeWidth={2} strokeDasharray="4 4" dot={{ r: 2 }} connectNulls />
           </ComposedChart>
         </FitChart>
       </Card>
 
-      <Card ai={AI.hours} title="Hours by type" sub="Weekly training time. Upper-body gym is recovery-grade and counts at 30% in the load.">
+      <Card ai={AI.hours} title="Hours by type" sub="Weekly training time; faded = planned from tomorrow. Upper-body gym is recovery-grade and counts at 30% in the load.">
         <Legend items={[{ label: 'Run', color: 'var(--s1)', box: true }, { label: 'Ride', color: 'var(--s2)', box: true }, { label: 'Legs', color: 'var(--s3)', box: true }, { label: 'Upper', color: 'var(--s7)', box: true }, { label: 'Other', color: 'var(--s-other)', box: true }]} />
         <FitChart height={H}>
-          <BarChart data={v.wk} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+          <BarChart data={v.wkAll} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
             <CartesianGrid {...GRID} /><XAxis dataKey="wk" {...AXIS} tickFormatter={tick} minTickGap={30} /><YAxis {...AXIS} />
             <Tooltip content={<Tip labelFormat={l => `Week of ${tick(l)}`} fmt={x => `${x} h`} />} />
-            {(['run', 'ride', 'legs', 'upper', 'other'] as const).map((k, i, arr) => (
+            <ReferenceLine x={monday(t)} stroke="var(--muted)" />
+            {(['run', 'ride', 'legs', 'upper', 'other'] as const).map(k => (
               <Bar key={k} dataKey={k} name={k[0].toUpperCase() + k.slice(1)} stackId="h" stroke="var(--surface)" strokeWidth={1}
-                fill={{ run: 'var(--s1)', ride: 'var(--s2)', legs: 'var(--s3)', upper: 'var(--s7)', other: 'var(--s-other)' }[k]} radius={i === arr.length - 1 ? [4, 4, 0, 0] : 0} />
+                fill={{ run: 'var(--s1)', ride: 'var(--s2)', legs: 'var(--s3)', upper: 'var(--s7)', other: 'var(--s-other)' }[k]} />
+            ))}
+            {(['aRun', 'aRide', 'aLegs', 'aUpper', 'aOther'] as const).map((k, i, arr) => (
+              <Bar key={k} dataKey={k} name={`${k.slice(1)} (plan)`} stackId="h" stroke="var(--surface)" strokeWidth={1} fillOpacity={0.35}
+                fill={{ aRun: 'var(--s1)', aRide: 'var(--s2)', aLegs: 'var(--s3)', aUpper: 'var(--s7)', aOther: 'var(--s-other)' }[k]} radius={i === arr.length - 1 ? [4, 4, 0, 0] : 0} />
             ))}
           </BarChart>
         </FitChart>
@@ -258,9 +307,14 @@ export default function Trends() {
         </Card>
         <Card ai={AI.weight} title="Weight" sub={`Daily weigh-ins and 7-day average · checkpoint ≤ ${data.settings.goal_weight_kg ?? 91} kg mid-May`}>
           {v.well.some(w => w.kg) ? <>
-            <Legend items={[{ label: 'Weigh-in', color: 'var(--s2)' }, { label: '7-day', color: 'var(--ink)' }, { label: 'Goal', color: 'var(--good)', dashed: true }]} />
+            <Legend items={[{ label: 'Weigh-in', color: 'var(--s2)' }, { label: '7-day', color: 'var(--ink)' }, { label: 'Goal', color: 'var(--good)', dashed: true },
+              ...(hasGoalPath ? [{ label: `Path to goal by ${dm(v.goalDate)}`, color: 'var(--s5)', dashed: true }] : []),
+              ...(hasCalPath ? [{ label: 'At logged calories', color: 'var(--s8)', dashed: true }] : [])]} />
             <FitChart height={170}>
               <LineChart data={weightRows} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+                {hasGoalPath && <Line dataKey="kgGoal" name="Path to goal" stroke="var(--s5)" strokeWidth={2} strokeDasharray="4 4" dot={false} connectNulls />}
+                {hasCalPath && <Line dataKey="kgCal" name="At logged calories" stroke="var(--s8)" strokeWidth={2} strokeDasharray="4 4" dot={false} connectNulls />}
+                <ReferenceLine x={lastPast} stroke="var(--muted)" />
                 <CartesianGrid {...GRID} /><XAxis dataKey="date" {...AXIS} tickFormatter={tick} minTickGap={40} /><YAxis {...AXIS} domain={[(min: number) => Math.floor(Math.min(min, Number(data.settings.goal_weight_kg ?? 91)) - 1), (max: number) => Math.ceil(max + 1)]} />
                 <Tooltip content={<Tip labelFormat={tick} fmt={x => `${x} kg`} />} />
                 <ReferenceLine y={Number(data.settings.goal_weight_kg ?? 91)} stroke="var(--good)" strokeDasharray="4 4" />
