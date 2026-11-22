@@ -6,6 +6,7 @@ import { callFn, getSettings, myId, useLoad } from '../lib/data'
 import Users from '../components/Users'
 import PacesCard from '../components/PacesCard'
 import CoachMemory from '../components/CoachMemory'
+import Races from '../components/Races'
 import type { Paces } from '../lib/paces'
 import { stamp } from '../lib/format'
 import { supabase } from '../lib/supabase'
@@ -90,6 +91,7 @@ export default function Settings() {
       </Card>
 
       <CoachMemory />
+      <Races />
 
       <Card title="Coach">
         <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={f.coach_auto ?? true} onChange={e => setF({ ...f, coach_auto: e.target.checked })} />

@@ -29,7 +29,7 @@ export function actualLine(a: Activity) {
   return bits.join(' · ')
 }
 
-export interface Report { headline: string; verdict: string; numbers: { label: string; value: string }[]; points: string[]; next: string | null }
+export interface Report { headline: string; verdict: string; numbers: { label: string; value: string }[]; points: string[]; next: string | null; race?: boolean }
 
 /** the automatic analysis of a long / hard session, with a button to (re)run it */
 export function ReportView({ act }: { act: Activity }) {
@@ -41,7 +41,7 @@ export function ReportView({ act }: { act: Activity }) {
   return (
     <div className="rounded-2xl bg-surface-2 p-3 mb-3">
       {r ? <>
-        <p className="label text-brand">Session report</p>
+        <p className="label text-brand">{r.race ? 'Race report' : 'Session report'}{r.verdict === 'race_pb' ? ' · PB' : ''}</p>
         <p className="font-semibold text-sm mt-0.5">{r.headline}</p>
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs mt-2">{r.numbers.flatMap(n => [<dt key={n.label + 'l'} className="text-muted">{n.label}</dt>, <dd key={n.label + 'v'} className="num">{n.value}</dd>])}</dl>
         <ul className="text-sm space-y-1 mt-2">{r.points.map(x => <li key={x} className="flex gap-2"><span className="text-muted">•</span>{x}</li>)}</ul>

@@ -27,7 +27,9 @@ DATA YOU GET (per athlete, in the JSON)
 - settings.paces: the athlete's training paces (Daniels VDOT from a race or time trial): easy range, marathon, tempo (threshold), intervals, in seconds per km. Prescribe run targets from these; Johannesburg results include altitude.
 - hard_rules: the athlete's NEVER rules. Your answer is checked against them after you reply (by code and by a second reviewer); a break gets your draft sent back, and anything still breaking a rule is shown to the athlete with a warning. your_recent_rule_breaks lists what you got wrong lately — don't repeat it.
 - coach_memory: standing decisions, facts and preferences the athlete agreed with you or told you (id, date, text, expires_on). They are binding: follow them in every review and answer, and they override your defaults and the profile where they conflict. Never re-introduce something a memory item rules out.
-- FUEL TARGETS (daily review → "fuel" for today): set the deficit and macros from today's and tomorrow's sessions and the phase. energy_today is the app's own burn (resting × activity factor + Garmin session calories already done; planned_sessions_kcal is an estimate for sessions not done yet) — base the deficit on it and never estimate burn yourself. Carbs by demand: rest/recovery 3–4 g/kg, easy day 4–5, hard or long day 6–8, carb loading 8–10 g/kg on the 1–2 days before a key race (no deficit then); protein 1.6–2.0 g/kg; fat 0.8–1.0 g/kg (lower on carb-load days). The weight-loss deficit (settings.kcal_deficit) applies on rest and easy days only, never before or after a long/hard session or race. Use the latest weight. Grams must add up to about the kcal (4/4/9).
+- FUEL TARGETS (daily review → "fuel" for today): set the deficit and macros from today's and tomorrow's sessions and the phase. energy_today is the app's own burn (resting × activity factor + Garmin session calories already done; planned_sessions_kcal is an estimate for sessions not done yet) — base the deficit on it and never estimate burn yourself. Carbs by demand: rest/recovery 3–4 g/kg, easy day 4–5, hard or long day 6–8; no carb loading unless the athlete asks (the day before a race is fuelled like the session it holds, no deficit); protein 1.6–2.0 g/kg; fat 0.8–1.0 g/kg (lower on carb-load days). The weight-loss deficit (settings.kcal_deficit) applies on rest and easy days only, never before or after a long/hard session or race. Use the latest weight. Grams must add up to about the kcal (4/4/9).
+- races: every race on file (past editions too): result (time_s, official or not per time_note), goal_s, pb_before_s, course_notes (start/finish, where the climbing sits, what changed), like-for-like course sections across years. session_reports: the automatic analyses of recent long, hard and race sessions.
+- RACES ARE NOT TRAINING. On a race day judge the result first (time vs goal vs PB vs past editions on the same course), then execution. Pacing caps in a race plan apply to the phase they name (e.g. "first 40 km"); surging late and sprinting to the line is racing, not escalation. In a bunch, power falls at the same or higher speed (drafting), so falling watts with steady speed is not a fade — read speed and terrain (where the climbing sits) before power or EF. Compare race sections only like-for-like (same section, and note if its position in the race moved).
 - workout_library: guided workouts; schedule them as sport "mobility" (or as fits) with targets.workout_id set.
 
 LOAD UNITS
@@ -272,6 +274,9 @@ Deno.serve(async (req) => {
     const hardRules = (hardRows ?? []) as HardRule[];
     const { data: guardRows } = await admin.from("tr_coach_runs").select("created_at,guard").eq("user_id", uid).not("guard", "is", null).gte("created_at", addDays(today, -14)).order("created_at", { ascending: false }).limit(10);
     const recentBreaks = (guardRows ?? []).flatMap((g) => ((g.guard?.violations ?? []) as Violation[]).map((x) => ({ on: String(g.created_at).slice(0, 10), rule: x.rule, detail: x.detail }))).slice(0, 12);
+    const { data: races } = await admin.from("tr_races").select("date,event,sport,distance_km,elev_m,goal_s,time_s,time_note,pb_before_s,avg_watts,avg_hr,course_notes,sections,notes").eq("user_id", uid).order("date");
+    const { data: reportRows } = await admin.from("tr_session_reports").select("activity_id,created_at,report").eq("user_id", uid).gte("created_at", addDays(today, -14)).order("created_at");
+    const session_reports = (reportRows ?? []).map((r) => ({ activity_id: r.activity_id, on: String(r.created_at).slice(0, 10), race: !!r.report?.race, verdict: r.report?.verdict, headline: r.report?.headline, points: r.report?.points }));
     const profile = profileOf(settings.data?.coach_profile);
     const h = Number(settings.data?.height_cm ?? 0);
     let neck: number | null = null, waist: number | null = null;
@@ -350,6 +355,8 @@ Deno.serve(async (req) => {
       body_composition,
       load_last_28_days: pmc.slice(-28),
       pending_proposals: pending.data,
+      races: races ?? [],
+      session_reports,
       coach_memory: memory,
       hard_rules: hardRules.map((r) => ({ id: r.id, text: r.text })),
       your_recent_rule_breaks: recentBreaks,

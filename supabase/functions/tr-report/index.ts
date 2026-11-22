@@ -15,7 +15,8 @@ const avg = (a: number[]) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length
 
 const Report = z.object({
   headline: z.string().describe("one bold sentence: the single most important finding"),
-  verdict: z.enum(["as_planned", "better", "harder_than_planned", "easier_than_planned", "incomplete", "faded"]),
+  verdict: z.enum(["as_planned", "better", "harder_than_planned", "easier_than_planned", "incomplete", "faded", "race_pb", "race_goal_met", "race_goal_missed"])
+    .describe("races: race_pb / race_goal_met / race_goal_missed — judged on the result"),
   numbers: z.array(z.object({ label: z.string(), value: z.string() })).describe("3–6 key numbers, e.g. 'Thirds pace' '5:58 / 6:02 / 6:20'"),
   points: z.array(z.string()).describe("2–4 short points: what it means, compared with plan and with the athlete's patterns"),
   next: z.string().nullable().describe("one concrete thing for the next similar session, or null"),
@@ -53,44 +54,96 @@ Deno.serve(async (req) => {
     const st = (t: string) => streams.find((x) => x.type === t)?.data ?? [];
     const T = st("time"), D = st("distance"), HR = st("heartrate"), W = st("watts"), V = st("velocity_smooth"), ALT = st("altitude");
 
-    // thirds by distance (runs) or time (rides): pace / power, HR, efficiency; first-vs-second-half HR drift (decoupling)
+    // thirds by distance when there is GPS (time for indoor rides): speed/pace, power, HR, efficiency, climbing, coasting
     const n = T.length, isRun = act.sport === "run";
-    const cut = (k: number) => { if (!n) return 0; if (isRun && D.length) { const total = D[n - 1]; return D.findIndex((d) => d >= (total * k) / 3); } return Math.floor((n * k) / 3); };
-    const idx = [0, cut(1), cut(2), n];
-    const thirds = [0, 1, 2].map((i) => {
-      const a = idx[i], b = Math.max(idx[i + 1], a + 1);
+    const byDist = D.length > 0 && (D[n - 1] ?? 0) > 1000;
+    const at = (m: number) => { const k = D.findIndex((d) => d >= m); return k < 0 ? n : k; };
+    const cut = (k: number) => { if (!n) return 0; if (byDist) return at((D[n - 1] * k) / 3); return Math.floor((n * k) / 3); };
+    const span = (a: number, b: number) => {
+      b = Math.max(b, a + 1);
       const secs = (T[b - 1] ?? 0) - (T[a] ?? 0), dist = (D[b - 1] ?? 0) - (D[a] ?? 0);
-      const hr = avg(HR.slice(a, b).filter((x) => x > 40)), w = avg(W.slice(a, b).filter((x) => x >= 0));
+      const hr = avg(HR.slice(a, b).filter((x) => x > 40)), ws = W.slice(a, b).filter((x) => x >= 0), w = avg(ws);
       const climb = ALT.slice(a, b).reduce((acc, v, j, arr) => acc + (j && v > arr[j - 1] ? v - arr[j - 1] : 0), 0);
       const descent = ALT.slice(a, b).reduce((acc, v, j, arr) => acc + (j && v < arr[j - 1] ? arr[j - 1] - v : 0), 0);
-      return { km: Math.round(dist / 100) / 10, min: Math.round(secs / 60), pace: isRun && dist > 0 ? pace(secs / (dist / 1000)) : null,
-        hr: hr ? Math.round(hr) : null, watts: !isRun && w ? Math.round(w) : null, ef: !isRun && w && hr ? Math.round((w / hr) * 100) / 100 : isRun && dist && hr ? Math.round(((dist / secs) * 60 / hr) * 1000) / 1000 : null,
+      return { km_from: Math.round((D[a] ?? 0) / 100) / 10, km: Math.round(dist / 100) / 10, min: Math.round(secs / 60 * 10) / 10,
+        kmh: !isRun && secs > 0 && dist > 0 ? Math.round((dist / secs) * 36) / 10 : null, pace: isRun && dist > 0 ? pace(secs / (dist / 1000)) : null,
+        hr: hr ? Math.round(hr) : null, max_hr: HR.slice(a, b).reduce((m, x) => Math.max(m, x), 0) || null,
+        watts: !isRun && w ? Math.round(w) : null, coast_pct: !isRun && ws.length ? Math.round((ws.filter((x) => x === 0).length / ws.length) * 100) : null,
+        ef: !isRun && w && hr ? Math.round((w / hr) * 100) / 100 : isRun && dist && hr ? Math.round(((dist / secs) * 60 / hr) * 1000) / 1000 : null,
         climb_m: Math.round(climb), descent_m: Math.round(descent) };
-    });
+    };
+    const idx = [0, cut(1), cut(2), n];
+    const thirds = [0, 1, 2].map((i) => span(idx[i], idx[i + 1]));
+
+    // climbs from the altitude stream (100 m steps, a climb ends after an 8 m drop): compare climbs with climbs, in race order
+    const climbs: (ReturnType<typeof span> & { gain_m: number; grade_pct: number })[] = [];
+    if (byDist && ALT.length === n) {
+      const step = 100, pts: { m: number; alt: number }[] = [];
+      for (let m = 0; m <= D[n - 1]; m += step) { const k = at(m); if (k < n) pts.push({ m, alt: ALT[k] }); }
+      const a = pts.map((p, j) => (pts.slice(Math.max(0, j - 1), j + 2).reduce((s, q) => s + q.alt, 0) / pts.slice(Math.max(0, j - 1), j + 2).length));
+      let lo = 0, hi = 0;
+      for (let k = 1; k < a.length; k++) {
+        if (hi === lo && a[k] < a[lo]) { lo = k; hi = k; continue; }
+        if (a[k] > a[hi]) hi = k;
+        if (a[k] < a[hi] - 8 || k === a.length - 1) {
+          const gain = a[hi] - a[lo], len = pts[hi].m - pts[lo].m;
+          if (hi > lo && gain >= 25 && len >= 300 && gain / len >= 0.025) climbs.push({ ...span(at(pts[lo].m), at(pts[hi].m)), gain_m: Math.round(gain), grade_pct: Math.round((gain / len) * 1000) / 10 });
+          lo = k; hi = k;
+        }
+      }
+    }
+    const kmSpan = (from: number, to: number) => span(at(from * 1000), at(to * 1000));
+    const totalKm = byDist ? D[n - 1] / 1000 : 0;
     const intervals = ((detail.icu_intervals ?? []) as Record<string, number | string>[]).filter((i) => i.type === "WORK").slice(0, 20).map((i) => ({
       min: Math.round(Number(i.moving_time) / 60 * 10) / 10, km: i.distance ? Math.round(Number(i.distance) / 100) / 10 : null,
       watts: i.average_watts ?? null, hr: i.average_heartrate ?? null, max_hr: i.max_heartrate ?? null,
       pace: isRun && i.average_speed ? pace(1000 / Number(i.average_speed)) : null, gap: isRun && i.gap ? pace(1000 / Number(i.gap)) : null,
     }));
-    const { data: planned } = act.planned_id ? await admin.from("tr_planned").select("title,description,duration_min,distance_km,intensity,targets").eq("id", act.planned_id).maybeSingle() : { data: null };
-    const { data: similar } = await admin.from("tr_activities").select("date,name,duration_s,distance_m,avg_hr,avg_watts,avg_pace_s,decoupling,load").eq("user_id", uid).eq("sport", act.sport)
+    const { data: planned } = act.planned_id ? await admin.from("tr_planned").select("sport,title,description,duration_min,distance_km,intensity,targets").eq("id", act.planned_id).maybeSingle() : { data: null };
+    const { data: similar } = await admin.from("tr_activities").select("date,name,duration_s,distance_m,elev_m,avg_hr,avg_watts,np_watts,avg_pace_s,decoupling,load").eq("user_id", uid).eq("sport", act.sport)
       .lt("date", act.date).gte("duration_s", Math.round((act.duration_s ?? 0) * 0.7)).order("date", { ascending: false }).limit(5);
+    // is this a race? the planned session says so, or a race on file for that day
+    const { data: raceRow } = await admin.from("tr_races").select("*").eq("user_id", uid).eq("date", act.date).maybeSingle();
+    const isRace = planned?.sport === "race" || planned?.intensity === "race" || !!raceRow;
+    const { data: editions } = isRace && raceRow ? await admin.from("tr_races").select("date,distance_km,elev_m,goal_s,time_s,time_note,pb_before_s,avg_watts,avg_hr,course_notes,sections,notes")
+      .eq("user_id", uid).eq("event", raceRow.event).lt("date", act.date).order("date") : { data: null };
+    const { data: memRows } = await admin.from("tr_coach_memory").select("text").eq("user_id", uid).eq("active", true).or(`expires_on.is.null,expires_on.gte.${act.date}`);
+    const hms = (sec: number | null | undefined) => (sec ? `${Math.floor(sec / 3600)}:${String(Math.floor((sec % 3600) / 60)).padStart(2, "0")}:${String(Math.round(sec % 60)).padStart(2, "0")}` : null);
 
     const facts = {
       session: { date: act.date, sport: act.sport, name: act.name, km: act.distance_m ? Math.round(act.distance_m / 100) / 10 : null, min: Math.round((act.duration_s ?? 0) / 60),
+        moving_time: hms(act.duration_s), avg_kmh: !isRun && act.distance_m && act.duration_s ? Math.round((act.distance_m / act.duration_s) * 36) / 10 : null,
         avg_hr: act.avg_hr, max_hr: act.max_hr, avg_watts: act.avg_watts, np: act.np_watts, pace: pace(act.avg_pace_s), gap: pace(act.gap_pace_s), load: act.load,
-        decoupling_pct: act.decoupling, ef: act.ef, rpe: act.rpe, notes: act.notes, elev_m: act.elev_m, indoor: act.trainer },
-      planned, thirds, work_intervals: intervals, similar_recent_sessions: similar, ftp: s?.ftp_w, paces: s?.paces,
+        decoupling_pct: act.decoupling, ef: act.ef, rpe: act.rpe, notes: act.notes, elev_m: act.elev_m, indoor: act.trainer, temp_c: act.extras?.temp_c ?? null },
+      planned, thirds_by_distance: thirds, climbs, work_intervals: intervals, ftp: s?.ftp_w, paces: s?.paces,
+      ...(isRace ? {
+        race: raceRow ? { ...raceRow, goal: hms(raceRow.goal_s), time: hms(raceRow.time_s), pb_before: hms(raceRow.pb_before_s), user_id: undefined } : null,
+        past_editions: (editions ?? []).map((e) => ({ ...e, time: hms(e.time_s), goal: hms(e.goal_s) })),
+        opening_40km: totalKm > 45 ? kmSpan(0, 40) : null,
+        last_10km: totalKm > 15 ? kmSpan(totalKm - 10, totalKm) : null,
+        last_5km: totalKm > 8 ? kmSpan(totalKm - 5, totalKm) : null,
+        last_1km: totalKm > 2 ? kmSpan(totalKm - 1, totalKm) : null,
+        recent_long_sessions: similar,
+      } : { similar_recent_sessions: similar }),
+      coach_memory: (memRows ?? []).map((m) => m.text),
     };
+    const TRAINING = `You analyse one training session for an endurance athlete and report on a phone screen: numbers first, short, plain English, no pep talk.\nCheck: planned vs actual (state both), pacing across the thirds (a rising effort in the last third against plan = escalation; a falling pace/power with rising HR = fade — but outdoors read speed, terrain (climb_m/descent_m, climbs) and coast_pct first: falling watts on a descending or drafting third is not a fade), heart-rate drift (decoupling >5% on an easy long session = aerobic limit or heat/fuelling), work intervals vs targets and against each other (flat is the goal), climbs against each other, comparison with the recent similar sessions. Note measurement quirks (HR strap spikes, GPS, gearing, which bike) when they could explain a number. One session is not a trend.`;
+    const RACE = `You analyse a RACE for an endurance athlete and report on a phone screen: numbers first, short, plain English, no pep talk. A race is not a training session.
+1. Result first: finish time against the goal, the PB going in and the past editions of this race (race.time; if it is null or the time_note says unofficial, use the moving time and say the official time is to confirm). The verdict is race_pb, race_goal_met or race_goal_missed.
+2. Course: read race.course_notes and the climbs list — where the climbing sits decides how the thirds should look. If the course or start changed since past editions, say so and only compare like-for-like sections (race.sections vs past_editions[].sections, noting where each section fell in the race that year).
+3. Execution against the race plan: pacing caps apply to the phase they name (e.g. "first 40 km": check opening_40km). After that phase, surging, chasing and sprinting to the line is racing, not escalation — do not call a strong finish a broken cap.
+4. Speed beats power in a bunch: drafting lowers watts at the same or higher speed, so falling watts with steady or rising km/h is the bunch doing its job, not a fade. A fade in a race = speed falling (terrain-adjusted) or being dropped. HR drifting up a few beats over hours in the heat is normal.
+5. Durability: compare the closing part (last_10km, last_5km, last_1km, the last section) with past editions and with the athlete's known pattern. A sprint left at the line means nothing cracked.
+6. What it means for the next goal, in one point. Note measurement quirks (max HR spikes, watch vs Strava differences) only if they matter.`;
     const client = new Anthropic();
     const model = s?.coach_model || "claude-opus-5-5";
     const res = await client.messages.parse({
-      model, max_tokens: 8000, output_config: { effort: "medium", format: zodOutputFormat(Report) },
-      system: [{ type: "text", text: `You analyse one training session for an endurance athlete and report on a phone screen: numbers first, short, plain English, no pep talk.\nCheck: planned vs actual (state both), pacing across the thirds (a rising effort in the last third against plan = escalation; a falling pace/power with rising HR = fade), heart-rate drift (decoupling >5% on an easy long session = aerobic limit or heat/fuelling), work intervals vs targets and against each other (flat is the goal), comparison with the recent similar sessions. Note measurement quirks (HR strap spikes, GPS, gearing) when they could explain a number. One session is not a trend.\n\nATHLETE PROFILE\n${s?.coach_profile ?? "(none)"}` }],
-      messages: [{ role: "user", content: `SESSION DATA (JSON):\n${JSON.stringify(facts)}` }],
+      model, max_tokens: 10000, output_config: { effort: isRace ? "high" : "medium", format: zodOutputFormat(Report) },
+      system: [{ type: "text", text: `${isRace ? RACE : TRAINING}\n\nATHLETE PROFILE\n${s?.coach_profile ?? "(none)"}` }],
+      messages: [{ role: "user", content: `${isRace ? "RACE" : "SESSION"} DATA (JSON):\n${JSON.stringify(facts)}` }],
     });
     if (!res.parsed_output) throw new Error(`no report (${res.stop_reason})`);
-    const report = { ...res.parsed_output, thirds, intervals };
+    const report = { ...res.parsed_output, race: isRace, thirds, climbs, intervals };
     await admin.from("tr_session_reports").upsert({ user_id: uid, activity_id: act.id, report, model, usage: res.usage }, { onConflict: "activity_id" });
     await admin.from("tr_coach_runs").insert({ user_id: uid, kind: "report", summary: res.parsed_output.headline, model, usage: res.usage });
     return json({ ok: true, report });
