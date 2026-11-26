@@ -78,7 +78,7 @@ export function SessionCard({ slot, p, acts, onLog, onEdit, onOpenAct, paces, re
           {p?.change_note && <p className="text-xs mt-2 flex gap-1.5 text-brand"><Icon name="spark" size={14} className="shrink-0 mt-px" /><span>{p.change_note}</span></p>}
           {open && p?.description && <p className="text-sm text-muted mt-2 whitespace-pre-line">{p.description}</p>}
           {open && t.exercises && t.exercises.length > 0 && (
-            <ul className="text-sm mt-2 space-y-0.5">{t.exercises.map(e => <li key={e.name} className="flex justify-between gap-2"><span>{e.name}</span><span className="num text-muted">{e.sets} × {e.reps}{e.kg ? ` @ ${e.kg} kg` : ''}</span></li>)}</ul>
+            <ul className="text-sm mt-2 space-y-0.5">{t.exercises.map((e, i) => <li key={`${i}-${e.name}`}className="flex justify-between gap-2"><span>{e.name}</span><span className="num text-muted">{e.sets} × {e.reps}{e.kg ? ` @ ${e.kg} kg` : ''}</span></li>)}</ul>
           )}
           {acts.map(a => (
             <button key={a.id} onClick={() => onOpenAct(a)} className="mt-2 w-full text-left rounded-xl bg-surface-2 px-3 py-2 text-xs">

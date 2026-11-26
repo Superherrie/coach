@@ -13,7 +13,9 @@ import { myId } from '../lib/data'
 export interface WEx { key: string; name: string; sets?: number; reps?: number; seconds?: number; per_side?: boolean; rest_s?: number; cues: string[]; why?: string; video_id: string | null; video_title: string | null; video_channel: string | null }
 export interface Workout { id: string; created_by?: string | null; name: string; category: string; summary: string | null; duration_min: number | null; equipment: string | null; when_to_use: string | null; exercises: WEx[] }
 
-const dose = (e: WEx & { rep_min?: number; rep_max?: number }) => e.rep_min
+const dose = (e: WEx & { rep_min?: number; rep_max?: number; unit?: string }) => e.unit
+  ? `${e.sets && e.sets > 1 ? `${e.sets} × ` : ''}${e.rep_max} ${e.unit}`
+  : e.rep_min
   ? `${e.sets ?? 3} × ${e.rep_min}–${e.rep_max} reps${e.per_side ? ' each leg' : ''}`
   : `${e.sets && e.sets > 1 ? `${e.sets} × ` : ''}${e.reps ? `${e.reps} reps` : `${e.seconds} s`}${e.per_side ? ' each side' : ''}`
 

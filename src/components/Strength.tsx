@@ -10,7 +10,11 @@ import type { GymSet } from '../lib/types'
 import type { WEx, Workout } from '../pages/Workouts'
 
 interface Row { kg: string; reps: string; rir: string; done: boolean }
-type ExS = WEx & { type?: string; rep_min?: number; rep_max?: number; increment_kg?: number; load?: string }
+// unit: a carry or similar logged as distance ('m') instead of reps — fixed sets, no 1RM records, distance in the reps column
+type ExS = WEx & { type?: string; rep_min?: number; rep_max?: number; increment_kg?: number; load?: string; unit?: string }
+const dosage = (e: ExS, sets?: number) => e.unit
+  ? `${e.sets ?? 1} × ${e.rep_max} ${e.unit}`
+  : `${sets || e.sets} × ${e.rep_min === e.rep_max ? e.rep_max : `${e.rep_min}–${e.rep_max}`}${e.per_side ? ' each leg' : ''}`
 
 /** suggestions for today, aware of the training phase (build / hold / skip) */
 // eslint-disable-next-line react-refresh/only-export-components
@@ -69,7 +73,7 @@ function beep() {
 
 /** personal records: today's best estimated 1RM per lift against everything before today */
 function prs(exs: ExS[], rows: Record<string, Row[]>, past: GymSet[]) {
-  return exs.flatMap(e => {
+  return exs.filter(e => !e.unit).flatMap(e => {
     const todayBest = Math.max(0, ...(rows[e.key] ?? []).filter(r => r.done && +r.kg > 0 && +r.reps > 0).map(r => e1rm(+r.kg, +r.reps)))
     const before = Math.max(0, ...past.filter(s => s.exercise.toLowerCase() === e.name.toLowerCase() && s.date < today() && s.kg && s.reps).map(s => e1rm(s.kg!, s.reps!)))
     return todayBest > 0 && todayBest > before ? [{ name: e.name, e1rm: Math.round(todayBest), prev: before ? Math.round(before) : null }] : []
@@ -92,7 +96,7 @@ export function StrengthPlayer({ w, onExit }: { w: Workout; onExit: () => void }
   useEffect(() => {
     if (Object.keys(rows).length || !ready) return
     setRows(Object.fromEntries(exs.map(e => {
-      const s = per[e.key]?.s; const n = s && s.sets > 0 ? s.sets : (e.sets ?? 3)
+      const s = per[e.key]?.s; const n = e.unit ? (e.sets ?? 1) : s && s.sets > 0 ? s.sets : (e.sets ?? 3)
       return [e.key, [...Array(n)].map(() => ({ kg: s?.kg != null ? String(s.kg) : '', reps: String(s?.reps || e.rep_max || ''), rir: '', done: false }))]
     })))
   }, [ready, per, exs, rows])
@@ -160,10 +164,10 @@ export function StrengthPlayer({ w, onExit }: { w: Workout; onExit: () => void }
       </div>
       <ModeBanner m={mode} />
       {exs.map(e => { const x = per[e.key]; return (
-        <Card key={e.key} title={e.name} sub={`${x?.s.sets || e.sets} × ${e.rep_min}–${e.rep_max}${e.per_side ? ' each leg' : ''} · ${e.load ?? ''} · rest ${Math.round((e.rest_s ?? 90) / 60 * 10) / 10} min`} right={<Dir s={x?.s} />}>
-          {x?.s && <p className={`text-xs mb-2 ${x.s.dir === 'up' ? 'text-good' : x.s.dir === 'down' || x.s.dir === 'hold' ? 'text-warn' : 'text-muted'}`}>{x.s.why}</p>}
+        <Card key={e.key} title={e.name} sub={`${dosage(e, x?.s.sets)} · ${e.load ?? ''} · rest ${Math.round((e.rest_s ?? 90) / 60 * 10) / 10} min`} right={e.unit ? undefined : <Dir s={x?.s} />}>
+          {x?.s && !e.unit && <p className={`text-xs mb-2 ${x.s.dir === 'up' ? 'text-good' : x.s.dir === 'down' || x.s.dir === 'hold' ? 'text-warn' : 'text-muted'}`}>{x.s.why}</p>}
           <div className="space-y-1.5">
-            <div className="grid grid-cols-[2rem_1fr_1fr_3.6rem_2.6rem] gap-1.5 text-[11px] text-muted px-1"><span>Set</span><span>kg{e.load?.includes('each') ? ' (each)' : ''}</span><span>Reps{e.per_side ? '/leg' : ''}</span><span title="Reps in reserve: how many more you could have done">In tank</span><span /></div>
+            <div className="grid grid-cols-[2rem_1fr_1fr_3.6rem_2.6rem] gap-1.5 text-[11px] text-muted px-1"><span>Set</span><span>kg{e.load?.includes('each') ? ' (each)' : ''}</span><span>{e.unit === 'm' ? 'Metres' : e.unit ?? `Reps${e.per_side ? '/leg' : ''}`}</span><span title="Reps in reserve: how many more you could have done">In tank</span><span /></div>
             {(rows[e.key] ?? []).map((r, i) => (
               <div key={i} className={`grid grid-cols-[2rem_1fr_1fr_3.6rem_2.6rem] gap-1.5 items-center rounded-xl px-1 ${r.done ? 'bg-good/10' : ''}`}>
                 <span className="num text-sm text-center">{i + 1}</span>
