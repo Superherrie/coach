@@ -71,6 +71,14 @@ function beep() {
   try { navigator.vibrate?.([150, 80, 150]) } catch { /* no vibration */ }
 }
 
+/** session clock (own state, so only this ticks every second) */
+function Elapsed({ since }: { since: number }) {
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t) }, [])
+  const s = Math.max(0, Math.floor((now - since) / 1000)), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60)
+  return <span className="block display text-xl num" title="Time since you started">{h ? `${h}:${String(m).padStart(2, '0')}` : m}:{String(s % 60).padStart(2, '0')}</span>
+}
+
 /** personal records: today's best estimated 1RM per lift against everything before today */
 function prs(exs: ExS[], rows: Record<string, Row[]>, past: GymSet[]) {
   return exs.filter(e => !e.unit).flatMap(e => {
@@ -85,12 +93,19 @@ export function StrengthPlayer({ w, onExit }: { w: Workout; onExit: () => void }
   const nav = useNavigate()
   const { per, mode, sets: past, ready } = useSuggestions(w)
   const exs = w.exercises as ExS[]
-  const [rows, setRows] = useState<Record<string, Row[]>>({})
+  // the session in progress (start time + sets) survives the phone killing the app between sets
+  const draftKey = `tr-player:${w.id}:${today()}`
+  const draft = useMemo(() => { try { return JSON.parse(localStorage.getItem(draftKey) ?? 'null') as { started: number; rows: Record<string, Row[]> } | null } catch { return null } }, [draftKey])
+  const [rows, setRows] = useState<Record<string, Row[]>>(draft?.rows ?? {})
   const [rest, setRest] = useState<{ left: number; next: string } | null>(null)
   const [rpe, setRpe] = useState<number | null>(null); const [notes, setNotes] = useState('')
   const [busy, setBusy] = useState(false); const [err, setErr] = useState<string>()
   const [done, setDone] = useState<{ minutes: number; records: ReturnType<typeof prs>; sets: number } | null>(null)
-  const started = useRef(Date.now())
+  const started = useRef(draft?.started ?? Date.now())
+  useEffect(() => {
+    if (!Object.keys(rows).length) return
+    try { localStorage.setItem(draftKey, JSON.stringify({ started: started.current, rows })) } catch { /* storage blocked */ }
+  }, [rows, draftKey])
 
   // pre-fill once the history has loaded; the phase decides how many sets
   useEffect(() => {
@@ -137,6 +152,7 @@ export function StrengthPlayer({ w, onExit }: { w: Workout; onExit: () => void }
       if (out.length) { const g = await supabase.from('tr_gym_sets').insert(out); if (g.error) throw new Error(g.error.message) }
       await supabase.from('tr_workout_log').insert({ workout_id: w.id, date: today(), minutes })
       if (p?.[0]) await supabase.from('tr_planned').update({ status: 'done' }).eq('id', p[0].id)
+      try { localStorage.removeItem(draftKey) } catch { /* storage blocked */ }
       setDone({ minutes, records: prs(exs, rows, past), sets: out.length })
     } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
@@ -160,7 +176,7 @@ export function StrengthPlayer({ w, onExit }: { w: Workout; onExit: () => void }
       <div className="flex items-center gap-2">
         <button className="text-sm text-muted flex items-center gap-1" onClick={() => { if (!doneSets || confirm('Leave without saving these sets?')) onExit() }}><Icon name="close" size={16} />End</button>
         <h1 className="display text-2xl flex-1 truncate">{w.name}</h1>
-        <span className="text-xs text-muted num">{doneSets} sets</span>
+        <span className="text-right leading-tight"><Elapsed since={started.current} /><span className="block text-[11px] text-muted num">{doneSets} sets</span></span>
       </div>
       <ModeBanner m={mode} />
       {exs.map(e => { const x = per[e.key]; return (

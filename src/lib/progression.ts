@@ -47,7 +47,12 @@ export function suggest(e: StrengthEx, past: Session[], mode?: Mode): Suggestion
   const work = last.sets.filter(s => (s.kg ?? 0) >= kg)         // working sets at the top weight
   const lastSet = work[work.length - 1]
   const failed = lastSet?.rir === 0                               // taken to failure → don't add weight yet
-  const allTop = work.length >= Math.min(n, e.sets ?? n) && work.every(s => (s.reps ?? 0) >= max)
+  // top of the range on every working set; one set short of the plan still counts (people often do 3 of 4)
+  const everyTop = work.length > 0 && work.every(s => (s.reps ?? 0) >= max)
+  const allTop = everyTop && work.length >= Math.max(1, Math.min(n, e.sets ?? n) - 1)
+  // well past the top (3+ extra reps, or 3+ in reserve on every set) = clearly too light: two steps up
+  const easy = everyTop && (work.every(s => (s.reps ?? 0) >= max + 3) || work.every(s => (s.rir ?? 0) >= 3))
+  if (easy && !failed && mode?.kind !== 'hold') return { kg: kg + inc * 2, reps: min, sets: n, dir: 'up', why: `Last time ${work.map(s => s.reps ?? '–').join('/')} reps at ${kg} kg (top of the range is ${max}) — too light, up ${inc * 2} kg. Aim for ${min}+ reps on every set.` }
   const below = (s: Session) => s.sets.filter(x => (x.kg ?? 0) >= top(s)).some(x => (x.reps ?? 0) < min)
   if (mode?.kind === 'hold') return { kg, reps: Math.min(max, Math.max(min, ...work.map(s => s.reps ?? 0))), sets: n, dir: 'hold', why: `${mode.label}: hold ${kg} kg — ${n} sets, leave 2 reps in reserve.` }
   if (allTop && !failed) return { kg: kg + inc, reps: min, sets: n, dir: 'up', why: `Last time ${work.length}×${max}+ at ${kg} kg — up ${inc} kg. Aim for ${min}+ reps on every set.` }
